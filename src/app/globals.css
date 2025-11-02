@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* ==== Variables de marca ==== */
+:root {
+  --brand-600: #004357; /* principal */
+  --brand-700: #003745; /* hover */
+  --brand-50:  #e6eff2; /* tint suave */
+}
+
+/* ==== Base (fondos y tipografía global) ==== */
+html, body { height: 100%; }
+
+body {
+  /* Tailwind v4: usa theme() directamente */
+  background-color: theme(colors.slate.50);
+  color: theme(colors.slate.800);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Links con color corporativo */
+a {
+  color: var(--brand-600);
+  text-underline-offset: 0.25rem;
+}
+a:hover { text-decoration: underline; }
+
+/* ==== Componentes reutilizables (sin @apply para evitar el error) ==== */
+
+/* Botón base */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;             /* ~ rounded-xl */
+  padding: 0.5rem 1rem;               /* ~ px-4 py-2 */
+  font-size: 0.875rem;                /* text-sm */
+  font-weight: 500;                   /* font-medium */
+  transition: background-color .15s, color .15s, border-color .15s, opacity .15s;
+  outline: none;
+}
+
+/* Botón corporativo */
+.btn-primary {
+  background: var(--brand-600);
+  color: white;
+}
+.btn-primary:hover { background: var(--brand-700); }
+
+/* Botón secundario (bordeado) */
+.btn-outline {
+  background: white;
+  border: 1px solid theme(colors.slate.300);
+  color: theme(colors.slate.700);
+}
+.btn-outline:hover { background: theme(colors.slate.50); }
+
+/* Card blanca con borde/sombra suaves */
+.card {
+  background: white;
+  border-radius: 1rem;                 /* rounded-2xl */
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); /* shadow-sm */
+}
+.card-bordered {
+  background: white;
+  border: 1px solid theme(colors.slate.200);
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+/* Cabecera pegajosa con fondo translúcido */
+.header-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: color-mix(in srgb, white 80%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid theme(colors.slate.200);
+}
+
+/* ==== Utilidades rápidas ==== */
+.text-brand { color: var(--brand-600); }
+.bg-brand   { background-color: var(--brand-600); }
+.ring-brand { --tw-ring-color: var(--brand-600); }

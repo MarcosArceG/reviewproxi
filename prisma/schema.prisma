@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+enum ClienteEstado {
+  ACTIVO
+  PAUSADO
+}
+
+enum ReviewStatus {
+  PENDIENTE
+  LISTA
+  RESPONDIDA
+}
+
+enum CreatedBy {
+  AI
+  USER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  clerkId   String   @unique
+  email     String   @unique
+  role      Role
+  clienteId String?
+  cliente   Cliente? @relation(fields: [clienteId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([clienteId])
+  @@map("User")
+}
+
+model Cliente {
+  id        String        @id @default(cuid())
+  nombre    String
+  slug      String        @unique
+  so        String?
+  email     String?
+  urlGoogle String?
+  estado    ClienteEstado @default(ACTIVO)
+
+  users      User[]
+  reviews    Review[]
+  automation Automation?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([estado])
+  @@index([nombre])
+  @@map("Cliente")
+}
+
+model Review {
+  id        String  @id @default(cuid())
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+
+  authorName     String?
+  authorPhotoUrl String?
+  text           String
+  stars          Int
+  date           DateTime
+  rawJson        Json?
+  status         ReviewStatus @default(PENDIENTE)
+
+  reply Reply?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clienteId, status])
+  @@index([date])
+  @@map("Review")
+}
+
+model Reply {
+  id       String @id @default(cuid())
+  reviewId String @unique
+  review   Review @relation(fields: [reviewId], references: [id])
+
+  draftText String
+  finalText String?
+  createdBy CreatedBy @default(AI)
+  sentAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("Reply")
+}
+
+model Automation {
+  id        String  @id @default(cuid())
+  clienteId String  @unique
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+
+  enabled   Boolean   @default(false)
+  enabledAt DateTime?
+  updatedAt DateTime  @updatedAt
+
+  createdAt DateTime @default(now())
+
+  @@map("Automation")
+}
