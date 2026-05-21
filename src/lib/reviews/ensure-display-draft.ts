@@ -29,8 +29,7 @@ export type DisplayDraft = {
 };
 
 export async function ensureDisplayDraftForReview(
-  row: ReviewRow,
-  businessName: string
+  row: ReviewRow
 ): Promise<DisplayDraft> {
   const requiresManualDraft = shouldSkipAutoDraft(row.stars, row.text);
   const storedDraft = row.reply?.draftText?.trim() || "";
@@ -51,15 +50,10 @@ export async function ensureDisplayDraftForReview(
       storedDraft,
       row.authorName,
       row.stars,
-      row.text,
-      businessName
+      row.text
     )
   ) {
-    const template = buildRatingOnlyThankYouDraft(
-      row.authorName,
-      row.stars,
-      businessName
-    )!;
+    const template = buildRatingOnlyThankYouDraft(row.authorName, row.stars)!;
 
     if (row.reply) {
       const updated = await prisma.reply.update({

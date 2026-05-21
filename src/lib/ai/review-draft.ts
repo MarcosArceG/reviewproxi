@@ -29,11 +29,6 @@ function displayName(authorName?: string | null): string {
   return name || "Cliente";
 }
 
-function businessLabel(businessName?: string | null): string {
-  const n = businessName?.trim();
-  return n || "nuestro equipo";
-}
-
 function starsLabel(stars: number): string {
   if (stars >= 5) return "5 estrellas";
   if (stars === 4) return "4 estrellas";
@@ -41,28 +36,21 @@ function starsLabel(stars: number): string {
 }
 
 /**
- * Plantilla neutra (servicios, talleres, clínicas, comercio, etc.).
- * Sin referencias a “visita”, “local” ni “volver pronto”.
+ * Solo estrellas, sin comentario: frase corta y segura.
+ * No menciona el negocio (el nombre del cliente en admin no es la marca en Maps).
  */
 export function buildRatingOnlyThankYouDraft(
   authorName: string | null | undefined,
-  stars: number,
-  businessName?: string | null
+  stars: number
 ): string | null {
   if (stars <= 3) return null;
 
   const nombre = displayName(authorName);
-  const negocio = businessLabel(businessName);
   const estrellas = starsLabel(stars);
-
-  if (stars >= 5) {
-    return `Muchas gracias, ${nombre}, por tu valoración de ${estrellas}. En ${negocio} nos alegra saber que quedaste satisfecho/a con nuestro servicio.`;
-  }
-
-  return `Muchas gracias, ${nombre}, por tu valoración de ${estrellas}. En ${negocio} agradecemos tu confianza y seguimos a tu disposición.`;
+  return `Muchas gracias, ${nombre}, por tu valoración de ${estrellas}.`;
 }
 
-/** Detecta plantillas antiguas (tono “negocio local” / texto truncado). */
+/** Detecta borradores antiguos (más largos, otro tono o truncados). */
 export function isLegacyRatingOnlyDraft(draft: string): boolean {
   const d = draft.trim();
   if (!d) return false;
@@ -70,7 +58,10 @@ export function isLegacyRatingOnlyDraft(draft: string): boolean {
     /por\s*\.{1,}\s*$/i.test(d) ||
     /por tu reseña de/i.test(d) ||
     /esperamos verte de nuevo/i.test(d) ||
-    /negocio local/i.test(d)
+    /nos alegra saber/i.test(d) ||
+    /quedaste satisfecho/i.test(d) ||
+    /seguimos a tu disposición/i.test(d) ||
+    /\bEn .+ nos alegra/i.test(d)
   );
 }
 
@@ -78,28 +69,32 @@ export function shouldReplaceRatingOnlyDraft(
   existingDraft: string | null | undefined,
   authorName: string | null | undefined,
   stars: number,
-  text?: string | null,
-  businessName?: string | null
+  text?: string | null
 ): boolean {
   if (!usesRatingOnlyTemplate(stars, text)) return false;
 
-  const expected = buildRatingOnlyThankYouDraft(authorName, stars, businessName);
+  const expected = buildRatingOnlyThankYouDraft(authorName, stars);
   if (!expected) return false;
 
   const d = (existingDraft || "").trim();
   if (!d) return true;
   if (d === expected) return false;
   if (isLegacyRatingOnlyDraft(d)) return true;
-  if (d.length < expected.length * 0.75) return true;
+  if (d.length > expected.length + 15) return true;
 
   return false;
+}
+
+function businessLabel(businessName?: string | null): string {
+  const n = businessName?.trim();
+  return n || "la empresa";
 }
 
 export function buildReviewDraftPrompt(review: ReviewDraftContext) {
   const texto = (review.text || "").trim();
   const negocio = businessLabel(review.businessName);
 
-  return `Redacta una respuesta breve y profesional en español en nombre de "${negocio}".
+  return `Redacta una respuesta breve y profesional en español para quien gestiona las reseñas de "${negocio}".
 
 - Autor de la reseña: ${review.authorName || "Cliente"}
 - Puntuación: ${typeof review.stars === "number" ? review.stars : "N/D"}
@@ -164,11 +159,7 @@ export async function resolveReviewDraftText(
   const texto = review.text.trim();
 
   if (!texto) {
-    return buildRatingOnlyThankYouDraft(
-      review.authorName,
-      review.stars,
-      review.businessName
-    );
+    return buildRatingOnlyThankYouDraft(review.authorName, review.stars);
   }
 
   const draft = await generateReviewDraftWithGemini(review);

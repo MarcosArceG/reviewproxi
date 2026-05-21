@@ -47,7 +47,6 @@ async function ensureDraftIfMissing(
   authorName: string | null,
   text: string,
   stars: number,
-  businessName: string,
   existingDraft?: string | null
 ) {
   if (shouldSkipAutoDraft(stars, text)) return false;
@@ -57,8 +56,7 @@ async function ensureDraftIfMissing(
     existingDraft,
     authorName,
     stars,
-    text,
-    businessName
+    text
   );
 
   if (hasDraft && !mustRefresh) return false;
@@ -95,7 +93,6 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
             existing.authorName,
             existing.text,
             existing.stars,
-            cliente.nombre,
             existing.reply?.draftText
           )
         ) {
