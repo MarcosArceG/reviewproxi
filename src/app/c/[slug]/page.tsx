@@ -102,7 +102,12 @@ export default function ClientePanelPage() {
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
 
       const via = data.provider === "google" ? "Google API" : "Apify (demo)";
-      toast.success(`Sincronizado vía ${via}: ${data.created} nuevas`);
+      const omitidas = data.skippedAnswered
+        ? ` · ${data.skippedAnswered} ya respondidas en Maps (ocultas)`
+        : "";
+      toast.success(
+        `Sincronizado vía ${via}: ${data.created} nuevas, ${data.drafted} borradores IA${omitidas}`
+      );
       window.location.href = `/c/${slug}/reviews`;
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "No se pudo sincronizar");

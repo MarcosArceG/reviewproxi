@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSlugFromRequest } from "@/lib/api/slug";
+import { hasOwnerReplyInRaw } from "@/lib/reviews/owner-reply";
 import {
   canUseGoogleApi,
   getClienteWithGoogle,
 } from "@/lib/reviews/provider";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -18,7 +20,6 @@ export async function GET(
     return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
   }
 
-  const { prisma } = await import("@/lib/prisma");
   const cliente = await getClienteWithGoogle(slug);
   if (!cliente) {
     return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
@@ -26,13 +27,13 @@ export async function GET(
 
   const googleApi = canUseGoogleApi(cliente.googleConnection);
 
-  const items = await prisma.review.findMany({
+  const rows = await prisma.review.findMany({
     where: {
       clienteId: cliente.id,
       status: { in: ["PENDIENTE", "LISTA"] },
     },
     orderBy: { date: "desc" },
-    take: 10,
+    take: 30,
     select: {
       id: true,
       authorName: true,
@@ -43,6 +44,7 @@ export async function GET(
       status: true,
       source: true,
       externalId: true,
+      rawJson: true,
       reply: {
         select: {
           id: true,
@@ -55,13 +57,31 @@ export async function GET(
     },
   });
 
+  const items = rows
+    .filter((r) => !hasOwnerReplyInRaw(r.rawJson))
+    .slice(0, 10)
+    .map((r) => {
+      const draftText = r.reply?.draftText?.trim() || "";
+      return {
+        id: r.id,
+        authorName: r.authorName,
+        authorPhotoUrl: r.authorPhotoUrl,
+        text: r.text,
+        stars: r.stars,
+        date: r.date,
+        status: r.status,
+        source: r.source,
+        externalId: r.externalId,
+        hasAiDraft: draftText.length > 0,
+        reply: r.reply,
+        canPostToGoogle:
+          googleApi && r.source === "GOOGLE" && Boolean(r.externalId),
+      };
+    });
+
   return NextResponse.json({
     syncProvider: googleApi ? "google" : "apify",
     googleConnected: googleApi,
-    items: items.map((r) => ({
-      ...r,
-      canPostToGoogle:
-        googleApi && r.source === "GOOGLE" && Boolean(r.externalId),
-    })),
+    items,
   });
 }

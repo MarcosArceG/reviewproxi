@@ -39,6 +39,7 @@ type GoogleReview = {
   starRating?: string;
   createTime?: string;
   updateTime?: string;
+  reviewReply?: { comment?: string; updateTime?: string };
 };
 
 const STAR_MAP: Record<string, number> = {
@@ -124,20 +125,25 @@ export async function fetchReviewsFromGoogle(
   const path = `/${locationName}/reviews`;
   const data = await googleFetch<{ reviews?: GoogleReview[] }>(accessToken, path);
 
-  return (data.reviews || []).slice(0, limit).map((r) => {
-    const externalId = reviewExternalId(r);
-    const dateStr = r.createTime || r.updateTime;
-    return {
-      externalId: externalId ? `google:${externalId}` : null,
-      source: "GOOGLE" as const,
-      authorName: r.reviewer?.displayName ?? null,
-      authorPhotoUrl: r.reviewer?.profilePhotoUrl ?? null,
-      text: r.comment || "",
-      stars: parseStarRating(r.starRating),
-      date: dateStr ? new Date(dateStr) : new Date(),
-      rawJson: r,
-    };
-  });
+  return (data.reviews || [])
+    .map((r) => {
+      const externalId = reviewExternalId(r);
+      const dateStr = r.createTime || r.updateTime;
+      const ownerText = r.reviewReply?.comment?.trim() || "";
+      return {
+        externalId: externalId ? `google:${externalId}` : null,
+        source: "GOOGLE" as const,
+        authorName: r.reviewer?.displayName ?? null,
+        authorPhotoUrl: r.reviewer?.profilePhotoUrl ?? null,
+        text: r.comment || "",
+        stars: parseStarRating(r.starRating),
+        date: dateStr ? new Date(dateStr) : new Date(),
+        rawJson: r,
+        hasOwnerReply: ownerText.length > 0,
+      };
+    })
+    .filter((r) => r.text.trim().length > 0 && !r.hasOwnerReply)
+    .slice(0, limit);
 }
 
 /**

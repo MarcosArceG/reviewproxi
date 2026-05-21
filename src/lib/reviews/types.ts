@@ -10,6 +10,8 @@ export type NormalizedReview = {
   stars: number;
   date: Date;
   rawJson: unknown;
+  /** Ya respondida por el negocio en Google Maps. */
+  hasOwnerReply: boolean;
 };
 
 export type SyncProvider = "apify" | "google";
@@ -19,6 +21,7 @@ export type SyncResult = {
   provider: SyncProvider;
   created: number;
   skipped: number;
+  skippedAnswered: number;
   drafted: number;
 };
 

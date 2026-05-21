@@ -1,8 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import {
-  buildReviewDraftPrompt,
-  generateReviewDraft,
-} from "@/lib/ai/review-draft";
+import { generateDraftForReview } from "@/lib/reviews/generate-draft";
 import {
   fetchReviewsForCliente,
   getClienteWithGoogle,
@@ -19,14 +16,20 @@ async function findExistingReview(
       where: {
         clienteId_externalId: { clienteId, externalId: item.externalId },
       },
-      select: { id: true },
+      select: { id: true, reply: { select: { draftText: true } } },
     });
   }
 
   return prisma.review.findFirst({
     where: { clienteId, text: item.text, date: item.date },
-    select: { id: true },
+    select: { id: true, reply: { select: { draftText: true } } },
   });
+}
+
+async function ensureDraftIfMissing(reviewId: string, hasDraft: boolean) {
+  if (hasDraft) return false;
+  await generateDraftForReview(reviewId);
+  return true;
 }
 
 export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> {
@@ -38,12 +41,24 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
 
   let created = 0;
   let skipped = 0;
+  let skippedAnswered = 0;
   let drafted = 0;
 
   for (const item of reviews) {
+    if (item.hasOwnerReply) {
+      skippedAnswered++;
+      continue;
+    }
+
     const existing = await findExistingReview(cliente.id, item);
     if (existing) {
       skipped++;
+      try {
+        const hasDraft = Boolean(existing.reply?.draftText?.trim());
+        if (await ensureDraftIfMissing(existing.id, hasDraft)) drafted++;
+      } catch (err) {
+        console.warn(`Draft backfill failed for review ${existing.id}:`, err);
+      }
       continue;
     }
 
@@ -60,25 +75,16 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
         rawJson: item.rawJson as object,
         status: "PENDIENTE",
       },
-      select: { id: true, text: true, stars: true, authorName: true },
+      select: { id: true },
     });
     created++;
 
-    const prompt = buildReviewDraftPrompt({
-      authorName: review.authorName,
-      text: review.text,
-      stars: review.stars,
-    });
-    const draftText = await generateReviewDraft(prompt);
-
-    await prisma.reply.create({
-      data: {
-        reviewId: review.id,
-        draftText,
-        createdBy: "AI",
-      },
-    });
-    drafted++;
+    try {
+      await generateDraftForReview(review.id);
+      drafted++;
+    } catch (err) {
+      console.error(`Gemini draft failed for new review ${review.id}:`, err);
+    }
   }
 
   if (provider === "google" && cliente.googleConnection) {
@@ -88,5 +94,5 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
     });
   }
 
-  return { ok: true, provider, created, skipped, drafted };
+  return { ok: true, provider, created, skipped, skippedAnswered, drafted };
 }

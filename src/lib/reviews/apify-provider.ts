@@ -1,4 +1,5 @@
 import type { NormalizedReview } from "@/lib/reviews/types";
+import { hasOwnerReplyInRaw } from "@/lib/reviews/owner-reply";
 
 function normalizeUrl(u?: string | null): string | null {
   if (!u || typeof u !== "string") return null;
@@ -145,7 +146,7 @@ export async function fetchReviewsFromApify(
 
   const items = await runApify(actorId, token, urlGoogle);
 
-  return items.slice(0, limit).map((raw: Record<string, unknown>) => {
+  const normalized: NormalizedReview[] = items.map((raw: Record<string, unknown>) => {
     const authorName =
       (raw.reviewerName as string) ||
       (raw.authorName as string) ||
@@ -173,6 +174,11 @@ export async function fetchReviewsFromApify(
       stars,
       date: parseReviewDate(raw) || new Date(),
       rawJson: raw,
+      hasOwnerReply: hasOwnerReplyInRaw(raw),
     };
   });
+
+  return normalized
+    .filter((r) => r.text.trim().length > 0 && !r.hasOwnerReply)
+    .slice(0, limit);
 }
