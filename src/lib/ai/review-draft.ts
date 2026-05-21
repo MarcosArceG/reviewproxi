@@ -1,48 +1,27 @@
 const SYSTEM_INSTRUCTION =
-  "Eres un asistente que redacta respuestas breves y profesionales a reseñas en español.";
+  "Eres un asistente que redacta respuestas breves y profesionales a reseñas en español, sin asumir un tipo concreto de negocio.";
+
+export type ReviewDraftContext = {
+  authorName?: string | null;
+  text?: string | null;
+  stars: number;
+  businessName?: string | null;
+};
 
 export function hasReviewText(text?: string | null): boolean {
   return Boolean(text?.trim());
 }
 
-/** Reseña solo con estrellas, sin comentario escrito. */
 export function isRatingOnlyReview(text?: string | null): boolean {
   return !hasReviewText(text);
 }
 
-/**
- * Reseñas ≤3 estrellas sin texto: no generamos borrador automático (respuesta manual).
- */
 export function shouldSkipAutoDraft(stars: number, text?: string | null): boolean {
   return isRatingOnlyReview(text) && stars <= 3;
 }
 
-/** 4–5★ sin comentario: siempre plantilla fija, nunca Gemini. */
 export function usesRatingOnlyTemplate(stars: number, text?: string | null): boolean {
   return isRatingOnlyReview(text) && stars >= 4;
-}
-
-/** Borradores viejos de Gemini truncados (p. ej. «…por ..») que hay que sustituir. */
-export function shouldReplaceRatingOnlyDraft(
-  existingDraft: string | null | undefined,
-  authorName: string | null | undefined,
-  stars: number,
-  text?: string | null
-): boolean {
-  if (!usesRatingOnlyTemplate(stars, text)) return false;
-
-  const expected = buildRatingOnlyThankYouDraft(authorName, stars);
-  if (!expected) return false;
-
-  const d = (existingDraft || "").trim();
-  if (!d) return true;
-  if (d === expected) return false;
-
-  if (/por\s*\.{1,}\s*$/i.test(d)) return true;
-  if (!d.includes("por tu reseña de")) return true;
-  if (d.length < expected.length * 0.75) return true;
-
-  return false;
 }
 
 function displayName(authorName?: string | null): string {
@@ -50,54 +29,92 @@ function displayName(authorName?: string | null): string {
   return name || "Cliente";
 }
 
-/** Plantilla fija para valoraciones positivas (4–5★) sin texto. */
+function businessLabel(businessName?: string | null): string {
+  const n = businessName?.trim();
+  return n || "nuestro equipo";
+}
+
+function starsLabel(stars: number): string {
+  if (stars >= 5) return "5 estrellas";
+  if (stars === 4) return "4 estrellas";
+  return `${stars} estrellas`;
+}
+
+/**
+ * Plantilla neutra (servicios, talleres, clínicas, comercio, etc.).
+ * Sin referencias a “visita”, “local” ni “volver pronto”.
+ */
 export function buildRatingOnlyThankYouDraft(
   authorName: string | null | undefined,
-  stars: number
+  stars: number,
+  businessName?: string | null
 ): string | null {
   if (stars <= 3) return null;
 
   const nombre = displayName(authorName);
-  const estrellas =
-    stars === 1
-      ? "1 estrella"
-      : stars >= 5
-        ? "5 estrellas"
-        : `${stars} estrellas`;
+  const negocio = businessLabel(businessName);
+  const estrellas = starsLabel(stars);
 
   if (stars >= 5) {
-    return `Muchas gracias, ${nombre}, por tu reseña de ${estrellas}. Nos alegra mucho tu valoración y esperamos verte de nuevo pronto.`;
+    return `Muchas gracias, ${nombre}, por tu valoración de ${estrellas}. En ${negocio} nos alegra saber que quedaste satisfecho/a con nuestro servicio.`;
   }
 
-  return `Muchas gracias, ${nombre}, por tu reseña de ${estrellas}. Agradecemos tu valoración y seguimos trabajando para ofrecerte la mejor experiencia.`;
+  return `Muchas gracias, ${nombre}, por tu valoración de ${estrellas}. En ${negocio} agradecemos tu confianza y seguimos a tu disposición.`;
 }
 
-export function buildReviewDraftPrompt(review: {
-  authorName?: string | null;
-  text?: string;
-  stars?: number;
-}) {
-  const texto = (review.text || "").trim();
-  return `Eres el community manager de un negocio local.
-Genera una respuesta breve, profesional y cercana a esta reseña en español:
+/** Detecta plantillas antiguas (tono “negocio local” / texto truncado). */
+export function isLegacyRatingOnlyDraft(draft: string): boolean {
+  const d = draft.trim();
+  if (!d) return false;
+  return (
+    /por\s*\.{1,}\s*$/i.test(d) ||
+    /por tu reseña de/i.test(d) ||
+    /esperamos verte de nuevo/i.test(d) ||
+    /negocio local/i.test(d)
+  );
+}
 
-- Nombre del autor: ${review.authorName || "Cliente"}
+export function shouldReplaceRatingOnlyDraft(
+  existingDraft: string | null | undefined,
+  authorName: string | null | undefined,
+  stars: number,
+  text?: string | null,
+  businessName?: string | null
+): boolean {
+  if (!usesRatingOnlyTemplate(stars, text)) return false;
+
+  const expected = buildRatingOnlyThankYouDraft(authorName, stars, businessName);
+  if (!expected) return false;
+
+  const d = (existingDraft || "").trim();
+  if (!d) return true;
+  if (d === expected) return false;
+  if (isLegacyRatingOnlyDraft(d)) return true;
+  if (d.length < expected.length * 0.75) return true;
+
+  return false;
+}
+
+export function buildReviewDraftPrompt(review: ReviewDraftContext) {
+  const texto = (review.text || "").trim();
+  const negocio = businessLabel(review.businessName);
+
+  return `Redacta una respuesta breve y profesional en español en nombre de "${negocio}".
+
+- Autor de la reseña: ${review.authorName || "Cliente"}
 - Puntuación: ${typeof review.stars === "number" ? review.stars : "N/D"}
-- Reseña: """${texto.slice(0, 1200)}"""
+- Texto de la reseña: """${texto.slice(0, 1200)}"""
 
 Instrucciones:
-- Agradece si la reseña es positiva.
-- Si es negativa (<= 3 estrellas), empatiza y ofrece solución.
-- No inventes datos. No uses emojis. 2-4 frases como máximo.
-- Respuesta completa, sin cortar frases.`;
+- Tono cercano y profesional; no asumas si es restaurante, tienda o servicio técnico (puede ser cualquier sector).
+- Agradece si la valoración es positiva; si es baja (<=3 estrellas), muestra empatía y disposición a ayudar, sin prometer cosas concretas.
+- No inventes datos, precios ni plazos. No uses emojis. 2-4 frases completas.`;
 }
 
 export async function generateReviewDraftWithGemini(
-  authorName: string | null | undefined,
-  text: string,
-  stars: number
+  review: ReviewDraftContext
 ): Promise<string> {
-  const prompt = buildReviewDraftPrompt({ authorName, text, stars });
+  const prompt = buildReviewDraftPrompt(review);
   return generateReviewDraft(prompt);
 }
 
@@ -141,24 +158,19 @@ export async function generateReviewDraft(prompt: string): Promise<string> {
   return typeof raw === "string" ? raw.trim() : "";
 }
 
-/**
- * Decide el borrador: plantilla (solo estrellas +), Gemini (con texto) o null (≤3★ sin texto).
- */
-export async function resolveReviewDraftText(review: {
-  authorName: string | null;
-  text: string;
-  stars: number;
-}): Promise<string | null> {
+export async function resolveReviewDraftText(
+  review: ReviewDraftContext & { text: string }
+): Promise<string | null> {
   const texto = review.text.trim();
 
   if (!texto) {
-    return buildRatingOnlyThankYouDraft(review.authorName, review.stars);
+    return buildRatingOnlyThankYouDraft(
+      review.authorName,
+      review.stars,
+      review.businessName
+    );
   }
 
-  const draft = await generateReviewDraftWithGemini(
-    review.authorName,
-    texto,
-    review.stars
-  );
+  const draft = await generateReviewDraftWithGemini(review);
   return draft.trim() || null;
 }

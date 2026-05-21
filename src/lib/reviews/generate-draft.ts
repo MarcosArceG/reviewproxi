@@ -28,11 +28,14 @@ export async function generateDraftForReview(
       authorName: true,
       text: true,
       stars: true,
+      cliente: { select: { nombre: true } },
       reply: { select: { id: true } },
     },
   });
 
   if (!review) throw new Error("Reseña no encontrada");
+
+  const businessName = review.cliente.nombre;
 
   if (shouldSkipAutoDraft(review.stars, review.text)) {
     await clearAiReply(review.id, review.reply?.id);
@@ -48,6 +51,7 @@ export async function generateDraftForReview(
     authorName: review.authorName,
     text: review.text,
     stars: review.stars,
+    businessName,
   });
 
   if (!draftText) {

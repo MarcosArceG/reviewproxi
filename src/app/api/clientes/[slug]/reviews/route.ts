@@ -62,7 +62,7 @@ export async function GET(
 
   const items = await Promise.all(
     filtered.map(async (r) => {
-      const display = await ensureDisplayDraftForReview(r);
+      const display = await ensureDisplayDraftForReview(r, cliente.nombre);
       return {
         id: r.id,
         authorName: r.authorName,

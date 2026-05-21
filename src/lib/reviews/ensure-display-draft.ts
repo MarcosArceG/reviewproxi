@@ -28,9 +28,9 @@ export type DisplayDraft = {
   reply: ReviewRow["reply"];
 };
 
-/** Corrige borradores truncados y devuelve el texto a mostrar en UI. */
 export async function ensureDisplayDraftForReview(
-  row: ReviewRow
+  row: ReviewRow,
+  businessName: string
 ): Promise<DisplayDraft> {
   const requiresManualDraft = shouldSkipAutoDraft(row.stars, row.text);
   const storedDraft = row.reply?.draftText?.trim() || "";
@@ -47,9 +47,19 @@ export async function ensureDisplayDraftForReview(
 
   if (
     usesRatingOnlyTemplate(row.stars, row.text) &&
-    shouldReplaceRatingOnlyDraft(storedDraft, row.authorName, row.stars, row.text)
+    shouldReplaceRatingOnlyDraft(
+      storedDraft,
+      row.authorName,
+      row.stars,
+      row.text,
+      businessName
+    )
   ) {
-    const template = buildRatingOnlyThankYouDraft(row.authorName, row.stars)!;
+    const template = buildRatingOnlyThankYouDraft(
+      row.authorName,
+      row.stars,
+      businessName
+    )!;
 
     if (row.reply) {
       const updated = await prisma.reply.update({
