@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSlugFromRequest } from "@/lib/api/slug";
+import { shouldSkipAutoDraft } from "@/lib/ai/review-draft";
 import { hasOwnerReplyInRaw } from "@/lib/reviews/owner-reply";
 import {
   canUseGoogleApi,
@@ -62,6 +63,7 @@ export async function GET(
     .slice(0, 10)
     .map((r) => {
       const draftText = r.reply?.draftText?.trim() || "";
+      const requiresManualDraft = shouldSkipAutoDraft(r.stars, r.text);
       return {
         id: r.id,
         authorName: r.authorName,
@@ -73,6 +75,7 @@ export async function GET(
         source: r.source,
         externalId: r.externalId,
         hasAiDraft: draftText.length > 0,
+        requiresManualDraft,
         reply: r.reply,
         canPostToGoogle:
           googleApi && r.source === "GOOGLE" && Boolean(r.externalId),

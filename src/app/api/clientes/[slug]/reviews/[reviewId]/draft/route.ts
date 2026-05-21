@@ -34,8 +34,11 @@ export async function POST(
       return NextResponse.json({ error: "Reseña no encontrada" }, { status: 404 });
     }
 
-    const draftText = await generateDraftForReview(reviewId);
-    return NextResponse.json({ ok: true, draftText });
+    const result = await generateDraftForReview(reviewId);
+    if (!result.ok) {
+      return NextResponse.json(result, { status: 200 });
+    }
+    return NextResponse.json({ ok: true, draftText: result.draftText });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Error al generar borrador";
     return NextResponse.json({ error: message }, { status: 500 });

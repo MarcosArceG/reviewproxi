@@ -1,10 +1,26 @@
 import { prisma } from "@/lib/prisma";
 import {
-  buildReviewDraftPrompt,
-  generateReviewDraft,
+  resolveReviewDraftText,
+  shouldSkipAutoDraft,
 } from "@/lib/ai/review-draft";
 
-export async function generateDraftForReview(reviewId: string): Promise<string> {
+export type GenerateDraftResult =
+  | { ok: true; draftText: string }
+  | { ok: false; skipped: true; reason: string };
+
+async function clearAiReply(reviewId: string, replyId?: string) {
+  if (replyId) {
+    await prisma.reply.delete({ where: { id: replyId } });
+  }
+  await prisma.review.update({
+    where: { id: reviewId },
+    data: { status: "PENDIENTE" },
+  });
+}
+
+export async function generateDraftForReview(
+  reviewId: string
+): Promise<GenerateDraftResult> {
   const review = await prisma.review.findUnique({
     where: { id: reviewId },
     select: {
@@ -18,14 +34,24 @@ export async function generateDraftForReview(reviewId: string): Promise<string> 
 
   if (!review) throw new Error("Reseña no encontrada");
 
-  const prompt = buildReviewDraftPrompt({
+  if (shouldSkipAutoDraft(review.stars, review.text)) {
+    await clearAiReply(review.id, review.reply?.id);
+    return {
+      ok: false,
+      skipped: true,
+      reason:
+        "Reseña de 3 estrellas o menos sin comentario: redacta la respuesta manualmente.",
+    };
+  }
+
+  const draftText = await resolveReviewDraftText({
     authorName: review.authorName,
     text: review.text,
     stars: review.stars,
   });
-  const draftText = await generateReviewDraft(prompt);
-  if (!draftText.trim()) {
-    throw new Error("Gemini no devolvió texto para el borrador");
+
+  if (!draftText) {
+    throw new Error("No se pudo generar el borrador");
   }
 
   if (review.reply) {
@@ -48,5 +74,5 @@ export async function generateDraftForReview(reviewId: string): Promise<string> 
     data: { status: "LISTA" },
   });
 
-  return draftText;
+  return { ok: true, draftText };
 }

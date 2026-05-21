@@ -24,6 +24,7 @@ type Review = {
   status: "PENDIENTE" | "LISTA" | "RESPONDIDA";
   source: "APIFY" | "GOOGLE";
   hasAiDraft: boolean;
+  requiresManualDraft: boolean;
   canPostToGoogle: boolean;
   reply: Reply | null;
 };
@@ -90,6 +91,19 @@ export default function ClienteReviewsPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
 
+        if (data.skipped) {
+          setDrafts((prev) => ({ ...prev, [reviewId]: "" }));
+          setItems((prev) =>
+            prev.map((r) =>
+              r.id === reviewId
+                ? { ...r, hasAiDraft: false, requiresManualDraft: true, reply: null }
+                : r
+            )
+          );
+          if (!silent) toast.info(data.reason || "Escribe la respuesta manualmente.");
+          return;
+        }
+
         const text = data.draftText || "";
         setDrafts((prev) => ({ ...prev, [reviewId]: text }));
         setItems((prev) =>
@@ -98,6 +112,7 @@ export default function ClienteReviewsPage() {
               ? {
                   ...r,
                   hasAiDraft: true,
+                  requiresManualDraft: false,
                   reply: r.reply
                     ? { ...r.reply, draftText: text, createdBy: "AI" }
                     : {
@@ -111,7 +126,13 @@ export default function ClienteReviewsPage() {
               : r
           )
         );
-        if (!silent) toast.success("Borrador generado con IA.");
+        if (!silent) {
+          toast.success(
+            text.includes("Muchas gracias") && text.length < 200
+              ? "Borrador sugerido listo."
+              : "Borrador generado con IA."
+          );
+        }
       } catch (e: unknown) {
         if (!silent) {
           toast.error(e instanceof Error ? e.message : "No se pudo generar el borrador");
@@ -128,7 +149,9 @@ export default function ClienteReviewsPage() {
     if (!slug) return;
     load().then((list) => {
       if (autoDraftStarted.current || !list.length) return;
-      const sinBorrador = list.filter((r) => !r.hasAiDraft);
+      const sinBorrador = list.filter(
+        (r) => !r.hasAiDraft && !r.requiresManualDraft
+      );
       if (!sinBorrador.length) return;
       autoDraftStarted.current = true;
 
@@ -297,7 +320,13 @@ export default function ClienteReviewsPage() {
                             </div>
                           </div>
                         </div>
-                        <p className="mt-3 text-slate-800 whitespace-pre-wrap">{r.text}</p>
+                        {r.text.trim() ? (
+                          <p className="mt-3 text-slate-800 whitespace-pre-wrap">{r.text}</p>
+                        ) : (
+                          <p className="mt-3 text-sm text-slate-500 italic">
+                            Sin comentario escrito — solo valoración de {r.stars} estrellas.
+                          </p>
+                        )}
                       </div>
 
                       <div>
@@ -310,15 +339,17 @@ export default function ClienteReviewsPage() {
                               </span>
                             )}
                           </div>
-                          <button
-                            type="button"
-                            className="text-xs inline-flex items-center gap-1 text-brand hover:underline disabled:opacity-50"
-                            onClick={() => generarBorrador(r.id)}
-                            disabled={isGenerating || isSending}
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            {isGenerating ? "Generando…" : "Regenerar"}
-                          </button>
+                          {!r.requiresManualDraft && (
+                            <button
+                              type="button"
+                              className="text-xs inline-flex items-center gap-1 text-brand hover:underline disabled:opacity-50"
+                              onClick={() => generarBorrador(r.id)}
+                              disabled={isGenerating || isSending}
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              {isGenerating ? "Generando…" : "Regenerar"}
+                            </button>
+                          )}
                         </div>
 
                         <textarea
@@ -327,9 +358,11 @@ export default function ClienteReviewsPage() {
                             setDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))
                           }
                           placeholder={
-                            isGenerating
-                              ? "Generando borrador con Gemini…"
-                              : "Pulsa «Regenerar» para crear un borrador con IA, o escribe tu respuesta."
+                            r.requiresManualDraft
+                              ? "Valoración baja sin texto: escribe una respuesta personalizada (no usamos IA aquí)."
+                              : isGenerating
+                                ? "Generando borrador…"
+                                : "Pulsa «Regenerar» o escribe tu respuesta."
                           }
                           disabled={isGenerating}
                           className={[
@@ -341,14 +374,14 @@ export default function ClienteReviewsPage() {
                         />
 
                         <div className="mt-3 flex justify-end gap-2">
-                          {!draft.trim() && !isGenerating && (
+                          {!draft.trim() && !isGenerating && !r.requiresManualDraft && (
                             <button
                               type="button"
                               className="btn btn-outline inline-flex items-center gap-2"
                               onClick={() => generarBorrador(r.id)}
                             >
                               <Sparkles className="w-4 h-4" />
-                              Generar con IA
+                              Generar borrador
                             </button>
                           )}
                           <button

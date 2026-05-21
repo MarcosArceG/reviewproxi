@@ -28,8 +28,8 @@ async function findExistingReview(
 
 async function ensureDraftIfMissing(reviewId: string, hasDraft: boolean) {
   if (hasDraft) return false;
-  await generateDraftForReview(reviewId);
-  return true;
+  const result = await generateDraftForReview(reviewId);
+  return result.ok;
 }
 
 export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> {
@@ -80,10 +80,10 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
     created++;
 
     try {
-      await generateDraftForReview(review.id);
-      drafted++;
+      const result = await generateDraftForReview(review.id);
+      if (result.ok) drafted++;
     } catch (err) {
-      console.error(`Gemini draft failed for new review ${review.id}:`, err);
+      console.error(`Draft failed for new review ${review.id}:`, err);
     }
   }
 
