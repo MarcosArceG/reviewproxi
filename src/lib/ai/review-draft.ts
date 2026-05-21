@@ -17,6 +17,34 @@ export function shouldSkipAutoDraft(stars: number, text?: string | null): boolea
   return isRatingOnlyReview(text) && stars <= 3;
 }
 
+/** 4–5★ sin comentario: siempre plantilla fija, nunca Gemini. */
+export function usesRatingOnlyTemplate(stars: number, text?: string | null): boolean {
+  return isRatingOnlyReview(text) && stars >= 4;
+}
+
+/** Borradores viejos de Gemini truncados (p. ej. «…por ..») que hay que sustituir. */
+export function shouldReplaceRatingOnlyDraft(
+  existingDraft: string | null | undefined,
+  authorName: string | null | undefined,
+  stars: number,
+  text?: string | null
+): boolean {
+  if (!usesRatingOnlyTemplate(stars, text)) return false;
+
+  const expected = buildRatingOnlyThankYouDraft(authorName, stars);
+  if (!expected) return false;
+
+  const d = (existingDraft || "").trim();
+  if (!d) return true;
+  if (d === expected) return false;
+
+  if (/por\s*\.{1,}\s*$/i.test(d)) return true;
+  if (!d.includes("por tu reseña de")) return true;
+  if (d.length < expected.length * 0.75) return true;
+
+  return false;
+}
+
 function displayName(authorName?: string | null): string {
   const name = authorName?.trim();
   return name || "Cliente";

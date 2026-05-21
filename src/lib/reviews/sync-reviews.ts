@@ -1,3 +1,4 @@
+import { shouldReplaceRatingOnlyDraft, shouldSkipAutoDraft } from "@/lib/ai/review-draft";
 import { prisma } from "@/lib/prisma";
 import { generateDraftForReview } from "@/lib/reviews/generate-draft";
 import {
@@ -16,18 +17,47 @@ async function findExistingReview(
       where: {
         clienteId_externalId: { clienteId, externalId: item.externalId },
       },
-      select: { id: true, reply: { select: { draftText: true } } },
+      select: {
+        id: true,
+        authorName: true,
+        text: true,
+        stars: true,
+        reply: { select: { draftText: true } },
+      },
     });
   }
 
   return prisma.review.findFirst({
     where: { clienteId, text: item.text, date: item.date },
-    select: { id: true, reply: { select: { draftText: true } } },
+    select: {
+      id: true,
+      authorName: true,
+      text: true,
+      stars: true,
+      reply: { select: { draftText: true } },
+    },
   });
 }
 
-async function ensureDraftIfMissing(reviewId: string, hasDraft: boolean) {
-  if (hasDraft) return false;
+async function ensureDraftIfMissing(
+  reviewId: string,
+  authorName: string | null,
+  text: string,
+  stars: number,
+  existingDraft?: string | null
+) {
+  if (shouldSkipAutoDraft(stars, text)) return false;
+
+  const hasDraft = Boolean(existingDraft?.trim());
+  const mustRefresh = shouldReplaceRatingOnlyDraft(
+    existingDraft,
+    authorName,
+    stars,
+    text
+  );
+
+  if (hasDraft && !mustRefresh) return false;
+
   const result = await generateDraftForReview(reviewId);
   return result.ok;
 }
@@ -54,8 +84,17 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
     if (existing) {
       skipped++;
       try {
-        const hasDraft = Boolean(existing.reply?.draftText?.trim());
-        if (await ensureDraftIfMissing(existing.id, hasDraft)) drafted++;
+        if (
+          await ensureDraftIfMissing(
+            existing.id,
+            existing.authorName,
+            existing.text,
+            existing.stars,
+            existing.reply?.draftText
+          )
+        ) {
+          drafted++;
+        }
       } catch (err) {
         console.warn(`Draft backfill failed for review ${existing.id}:`, err);
       }

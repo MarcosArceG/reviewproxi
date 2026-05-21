@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSlugFromRequest } from "@/lib/api/slug";
-import { shouldSkipAutoDraft } from "@/lib/ai/review-draft";
 import { hasOwnerReplyInRaw } from "@/lib/reviews/owner-reply";
+import { ensureDisplayDraftForReview } from "@/lib/reviews/ensure-display-draft";
 import {
   canUseGoogleApi,
   getClienteWithGoogle,
@@ -58,12 +58,11 @@ export async function GET(
     },
   });
 
-  const items = rows
-    .filter((r) => !hasOwnerReplyInRaw(r.rawJson))
-    .slice(0, 10)
-    .map((r) => {
-      const draftText = r.reply?.draftText?.trim() || "";
-      const requiresManualDraft = shouldSkipAutoDraft(r.stars, r.text);
+  const filtered = rows.filter((r) => !hasOwnerReplyInRaw(r.rawJson)).slice(0, 10);
+
+  const items = await Promise.all(
+    filtered.map(async (r) => {
+      const display = await ensureDisplayDraftForReview(r);
       return {
         id: r.id,
         authorName: r.authorName,
@@ -74,13 +73,16 @@ export async function GET(
         status: r.status,
         source: r.source,
         externalId: r.externalId,
-        hasAiDraft: draftText.length > 0,
-        requiresManualDraft,
-        reply: r.reply,
+        hasAiDraft: display.hasAiDraft,
+        requiresManualDraft: display.requiresManualDraft,
+        isTemplateDraft: display.isTemplateDraft,
+        suggestedDraftText: display.draftText,
+        reply: display.reply,
         canPostToGoogle:
           googleApi && r.source === "GOOGLE" && Boolean(r.externalId),
       };
-    });
+    })
+  );
 
   return NextResponse.json({
     syncProvider: googleApi ? "google" : "apify",

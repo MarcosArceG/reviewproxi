@@ -25,6 +25,8 @@ type Review = {
   source: "APIFY" | "GOOGLE";
   hasAiDraft: boolean;
   requiresManualDraft: boolean;
+  isTemplateDraft: boolean;
+  suggestedDraftText?: string;
   canPostToGoogle: boolean;
   reply: Reply | null;
 };
@@ -67,7 +69,10 @@ export default function ClienteReviewsPage() {
       setGoogleConnected(Boolean(data.googleConnected));
       setDrafts(
         Object.fromEntries(
-          list.map((r) => [r.id, r.reply?.draftText?.trim() || ""])
+          list.map((r) => [
+            r.id,
+            r.suggestedDraftText?.trim() || r.reply?.draftText?.trim() || "",
+          ])
         )
       );
       return list;
@@ -126,13 +131,7 @@ export default function ClienteReviewsPage() {
               : r
           )
         );
-        if (!silent) {
-          toast.success(
-            text.includes("Muchas gracias") && text.length < 200
-              ? "Borrador sugerido listo."
-              : "Borrador generado con IA."
-          );
-        }
+        if (!silent) toast.success("Borrador actualizado.");
       } catch (e: unknown) {
         if (!silent) {
           toast.error(e instanceof Error ? e.message : "No se pudo generar el borrador");
@@ -332,7 +331,11 @@ export default function ClienteReviewsPage() {
                       <div>
                         <div className="flex items-center justify-between gap-2 mb-2">
                           <div className="text-sm text-slate-600">
-                            <span className="font-medium">Borrador sugerido (IA)</span>
+                            <span className="font-medium">
+                              {r.isTemplateDraft
+                                ? "Plantilla sugerida"
+                                : "Borrador sugerido (IA)"}
+                            </span>
                             {r.canPostToGoogle && (
                               <span className="ml-2 text-xs text-emerald-700">
                                 · se publicará en Maps
