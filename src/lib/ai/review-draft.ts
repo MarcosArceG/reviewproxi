@@ -1,3 +1,6 @@
+const SYSTEM_INSTRUCTION =
+  "Eres un asistente que redacta respuestas breves y profesionales a reseñas en español.";
+
 export function buildReviewDraftPrompt(review: {
   authorName?: string | null;
   text?: string;
@@ -17,36 +20,41 @@ Instrucciones:
 }
 
 export async function generateReviewDraft(prompt: string): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  if (!apiKey) throw new Error("Falta OPENAI_API_KEY");
+  const apiKey = process.env.GEMINI_API_KEY;
+  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  if (!apiKey) throw new Error("Falta GEMINI_API_KEY");
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+  const res = await fetch(url, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify({
-      model,
-      messages: [
+      systemInstruction: {
+        parts: [{ text: SYSTEM_INSTRUCTION }],
+      },
+      contents: [
         {
-          role: "system",
-          content:
-            "Eres un asistente que redacta respuestas breves y profesionales a reseñas en español.",
+          role: "user",
+          parts: [{ text: prompt }],
         },
-        { role: "user", content: prompt },
       ],
-      temperature: 0.5,
-      max_tokens: 220,
+      generationConfig: {
+        temperature: 0.5,
+        maxOutputTokens: 220,
+      },
     }),
   });
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    throw new Error(`OpenAI error ${res.status}: ${txt || res.statusText}`);
+    throw new Error(`Gemini error ${res.status}: ${txt || res.statusText}`);
   }
 
   const data = await res.json();
-  return data?.choices?.[0]?.message?.content?.trim() || "";
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return typeof text === "string" ? text.trim() : "";
 }
