@@ -1,33 +1,36 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getSlugFromRequest } from "@/lib/api/slug";
+import {
+  canUseGoogleApi,
+  getClienteWithGoogle,
+} from "@/lib/reviews/provider";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
 
-function getSlugFromRequest(req: Request, params?: Record<string, any>) {
-  let slug = params?.slug;
-  if (Array.isArray(slug)) slug = slug[0];
-  if (typeof slug === "string" && slug.trim()) return slug.trim();
-  const { pathname } = new URL(req.url);
-  const parts = pathname.replace(/\/+$/, "").split("/");
-  return parts[parts.length - 2] || undefined; // .../clientes/[slug]/reviews
-}
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug: slugParam } = await params;
+  const slug = getSlugFromRequest(req, { slug: slugParam }, 1);
+  if (!slug) {
+    return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
+  }
 
-async function getClienteByIdOrSlug(value: string) {
-  let c = await prisma.cliente.findUnique({ where: { id: value } });
-  if (c) return c;
-  return prisma.cliente.findUnique({ where: { slug: value } });
-}
+  const { prisma } = await import("@/lib/prisma");
+  const cliente = await getClienteWithGoogle(slug);
+  if (!cliente) {
+    return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+  }
 
-export async function GET(req: Request, context: { params?: Record<string, any> } = {}) {
-  const slug = getSlugFromRequest(req, context.params);
-  if (!slug) return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
-
-  const cliente = await getClienteByIdOrSlug(slug);
-  if (!cliente) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+  const googleApi = canUseGoogleApi(cliente.googleConnection);
 
   const items = await prisma.review.findMany({
-    where: { clienteId: cliente.id },
+    where: {
+      clienteId: cliente.id,
+      status: { in: ["PENDIENTE", "LISTA"] },
+    },
     orderBy: { date: "desc" },
     take: 10,
     select: {
@@ -38,11 +41,27 @@ export async function GET(req: Request, context: { params?: Record<string, any> 
       stars: true,
       date: true,
       status: true,
+      source: true,
+      externalId: true,
       reply: {
-        select: { id: true, draftText: true, finalText: true, createdBy: true, sentAt: true },
+        select: {
+          id: true,
+          draftText: true,
+          finalText: true,
+          createdBy: true,
+          sentAt: true,
+        },
       },
     },
   });
 
-  return NextResponse.json({ items });
+  return NextResponse.json({
+    syncProvider: googleApi ? "google" : "apify",
+    googleConnected: googleApi,
+    items: items.map((r) => ({
+      ...r,
+      canPostToGoogle:
+        googleApi && r.source === "GOOGLE" && Boolean(r.externalId),
+    })),
+  });
 }

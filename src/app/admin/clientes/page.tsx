@@ -96,7 +96,7 @@ export default function ClientesListadoPage() {
           }
         },
       },
-      cancel: { label: "Cancelar" },
+      cancel: { label: "Cancelar", onClick: () => {} },
     });
   };
 

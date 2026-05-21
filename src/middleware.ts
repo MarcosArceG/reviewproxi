@@ -1,14 +1,18 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default clerkMiddleware({
-  publicRoutes: [
-    "/sign-in(.*)",
-    "/sign-up(.*)",
-    "/api/(.*)",          // ⬅️ deja los endpoints API fuera de Clerk
-  ],
+const isPublicRoute = createRouteMatcher([
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/auth/google/callback",
+  "/api/(.*)",
+]);
+
+export default clerkMiddleware(async (auth, req) => {
+  if (!isPublicRoute(req)) {
+    await auth.protect();
+  }
 });
 
-// ⬅️ excluimos /api del matcher para que no lo toque el middleware
 export const config = {
-  matcher: ["/((?!_next|.*\\..*|api).*)"],
+  matcher: ["/((?!_next|.*\\..*).*)"],
 };

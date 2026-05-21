@@ -2,6 +2,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClerkClient } from "@clerk/backend"; // ⬅️ lo usamos solo dentro de POST
 
@@ -90,13 +91,13 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
 
-    const where = q
+    const where: Prisma.ClienteWhereInput = q
       ? {
           OR: [
-            { nombre: { contains: q, mode: "insensitive" } },
-            { email: { contains: q, mode: "insensitive" } },
-            { slug: { contains: q, mode: "insensitive" } },
-            { so: { contains: q, mode: "insensitive" } },
+            { nombre: { contains: q, mode: Prisma.QueryMode.insensitive } },
+            { email: { contains: q, mode: Prisma.QueryMode.insensitive } },
+            { slug: { contains: q, mode: Prisma.QueryMode.insensitive } },
+            { so: { contains: q, mode: Prisma.QueryMode.insensitive } },
           ],
         }
       : {};

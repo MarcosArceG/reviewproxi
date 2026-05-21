@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createClerkClient } from "@clerk/backend";
+import { getSlugFromRequest } from "@/lib/api/slug";
+import {
+  getClienteWithGoogle,
+  getGooglePublicStatus,
+  resolveSyncProvider,
+} from "@/lib/reviews/provider";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -9,43 +15,37 @@ const clerk = createClerkClient({
   secretKey: process.env.CLERK_SECRET_KEY!,
 });
 
-/** Extrae slug/ID desde params o desde la URL como fallback */
-function getSlugFromRequest(req: Request, params?: Record<string, any>) {
-  let slug = params?.slug;
-  if (Array.isArray(slug)) slug = slug[0];
-  if (typeof slug === "string" && slug.trim()) return slug.trim();
-  try {
-    const { pathname } = new URL(req.url);
-    const parts = pathname.replace(/\/+$/, "").split("/");
-    return parts[parts.length - 1] || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function getClienteByIdOrSlug(value: string) {
-  let c = await prisma.cliente.findUnique({ where: { id: value } });
-  if (c) return c;
-  return prisma.cliente.findUnique({ where: { slug: value } });
-}
-
 /* ------------ GET ------------ */
-export async function GET(req: Request, context: { params?: Record<string, any> } = {}) {
-  const slug = getSlugFromRequest(req, context.params);
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug: slugParam } = await params;
+  const slug = getSlugFromRequest(req, { slug: slugParam });
   if (!slug) return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
 
-  const cliente = await getClienteByIdOrSlug(slug);
+  const cliente = await getClienteWithGoogle(slug);
   if (!cliente) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
-  return NextResponse.json(cliente);
+
+  const { googleConnection, ...rest } = cliente;
+  return NextResponse.json({
+    ...rest,
+    syncProvider: resolveSyncProvider(cliente),
+    google: getGooglePublicStatus(googleConnection),
+  });
 }
 
 /* ------------ PATCH ------------ */
-export async function PATCH(req: Request, context: { params?: Record<string, any> } = {}) {
-  const slug = getSlugFromRequest(req, context.params);
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug: slugParam } = await params;
+  const slug = getSlugFromRequest(req, { slug: slugParam });
   if (!slug) return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
 
   const data = await req.json();
-  const cliente = await getClienteByIdOrSlug(slug);
+  const cliente = await getClienteWithGoogle(slug);
   if (!cliente) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
 
   const updated = await prisma.cliente.update({ where: { id: cliente.id }, data });
@@ -53,11 +53,15 @@ export async function PATCH(req: Request, context: { params?: Record<string, any
 }
 
 /* ------------ DELETE (DB + Clerk) ------------ */
-export async function DELETE(req: Request, context: { params?: Record<string, any> } = {}) {
-  const slug = getSlugFromRequest(req, context.params);
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  const { slug: slugParam } = await params;
+  const slug = getSlugFromRequest(req, { slug: slugParam });
   if (!slug) return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
 
-  const cliente = await getClienteByIdOrSlug(slug);
+  const cliente = await getClienteWithGoogle(slug);
   if (!cliente) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
 
   // 1) Obtener usuarios vinculados (clerkId) ANTES de borrar en DB
@@ -114,6 +118,7 @@ export async function DELETE(req: Request, context: { params?: Record<string, an
       }
 
       await tx.automation.deleteMany({ where: { clienteId: cliente.id } });
+      await tx.googleConnection.deleteMany({ where: { clienteId: cliente.id } });
       await tx.user.deleteMany({ where: { clienteId: cliente.id } });
       await tx.cliente.delete({ where: { id: cliente.id } });
     });

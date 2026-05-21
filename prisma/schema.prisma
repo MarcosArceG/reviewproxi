@@ -28,6 +28,18 @@ enum CreatedBy {
   USER
 }
 
+enum ReviewSource {
+  APIFY
+  GOOGLE
+}
+
+enum GoogleConnectionStatus {
+  PENDING
+  CONNECTED
+  EXPIRED
+  REVOKED
+}
+
 model User {
   id        String   @id @default(cuid())
   clerkId   String   @unique
@@ -53,9 +65,10 @@ model Cliente {
   urlGoogle String?
   estado    ClienteEstado @default(ACTIVO)
 
-  users      User[]
-  reviews    Review[]
-  automation Automation?
+  users            User[]
+  reviews          Review[]
+  automation       Automation?
+  googleConnection GoogleConnection?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -63,6 +76,36 @@ model Cliente {
   @@index([estado])
   @@index([nombre])
   @@map("Cliente")
+}
+
+/// Tokens OAuth de Google Business Profile (un registro por cliente).
+model GoogleConnection {
+  id        String @id @default(cuid())
+  clienteId String @unique
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  status GoogleConnectionStatus @default(PENDING)
+
+  /// Resource name: accounts/{accountId}
+  googleAccountId String?
+  /// Resource name: accounts/{accountId}/locations/{locationId}
+  locationName    String?
+  placeId         String?
+
+  accessToken    String?   @db.Text
+  refreshToken   String?   @db.Text
+  tokenExpiresAt DateTime?
+  scopes         String?
+
+  connectedAt DateTime?
+  lastSyncAt  DateTime?
+  lastError   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("GoogleConnection")
 }
 
 model Review {
@@ -75,6 +118,9 @@ model Review {
   text           String
   stars          Int
   date           DateTime
+  /// ID estable en Google (p. ej. reviewId de Business Profile API).
+  externalId     String?
+  source         ReviewSource @default(APIFY)
   rawJson        Json?
   status         ReviewStatus @default(PENDIENTE)
 
@@ -83,8 +129,10 @@ model Review {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([clienteId, externalId])
   @@index([clienteId, status])
   @@index([date])
+  @@index([source])
   @@map("Review")
 }
 
