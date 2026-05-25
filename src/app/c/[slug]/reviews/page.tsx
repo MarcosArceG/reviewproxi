@@ -3,8 +3,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import AutomationSetupModal from "@/components/AutomationSetupModal";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
+
+type Tab = "pending" | "responded";
+type RespondedMode = "all" | "manual" | "auto";
+
+type AutomationState = {
+  enabled: boolean;
+  minStars: number;
+  summary?: string;
+  counts?: {
+    pending: number;
+    pendingEligible: number;
+    pendingManualOnly: number;
+    respondedManual: number;
+    respondedAuto: number;
+  };
+};
 
 type Reply = {
   id: string;
@@ -12,24 +29,71 @@ type Reply = {
   finalText: string | null;
   createdBy: "AI" | "USER";
   sentAt: string | null;
+  sentByAutomation?: boolean;
 };
 
-type Review = {
+type PendingReview = {
   id: string;
   authorName: string | null;
   authorPhotoUrl: string | null;
   text: string;
   stars: number;
   date: string;
-  status: "PENDIENTE" | "LISTA" | "RESPONDIDA";
-  source: "APIFY" | "GOOGLE";
   hasAiDraft: boolean;
   requiresManualDraft: boolean;
   isTemplateDraft: boolean;
   suggestedDraftText?: string;
+  eligibleForAutomation?: boolean;
+  automationManualOnly?: boolean;
   canPostToGoogle: boolean;
   reply: Reply | null;
 };
+
+type RespondedReview = {
+  id: string;
+  authorName: string | null;
+  authorPhotoUrl: string | null;
+  text: string;
+  stars: number;
+  date: string;
+  sentByAutomation: boolean;
+  responseText: string;
+  sentAt: string | null;
+};
+
+function ReviewAuthorBlock({
+  authorName,
+  authorPhotoUrl,
+  stars,
+  date,
+}: {
+  authorName: string | null;
+  authorPhotoUrl: string | null;
+  stars: number;
+  date: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      {authorPhotoUrl ? (
+        <img
+          src={authorPhotoUrl}
+          alt=""
+          className="w-10 h-10 rounded-full object-cover bg-slate-100"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <div className="w-10 h-10 rounded-full bg-slate-200" />
+      )}
+      <div>
+        <div className="font-medium text-slate-900">{authorName || "Cliente"}</div>
+        <div className="text-xs text-slate-500">
+          ⭐ {stars} · {new Date(date).toLocaleDateString()}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ClienteReviewsPage() {
   const pathname = usePathname();
@@ -43,47 +107,81 @@ export default function ClienteReviewsPage() {
     return parts[parts.length - 2] || "";
   }, [pathname]);
 
+  const [tab, setTab] = useState<Tab>("pending");
+  const [respondedMode, setRespondedMode] = useState<RespondedMode>("all");
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<Review[]>([]);
+  const [pendingItems, setPendingItems] = useState<PendingReview[]>([]);
+  const [respondedItems, setRespondedItems] = useState<RespondedReview[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [googleConnected, setGoogleConnected] = useState(false);
-  const [auto, setAuto] = useState(false);
+  const [automation, setAutomation] = useState<AutomationState>({
+    enabled: false,
+    minStars: 4,
+  });
+  const [showAutomationModal, setShowAutomationModal] = useState(false);
+  const [savingAutomation, setSavingAutomation] = useState(false);
   const [sending, setSending] = useState<string | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (searchParams.get("google_connected") === "1") {
-      toast.success("Google Business conectado correctamente.");
-    }
-  }, [searchParams]);
+  const loadAutomation = useCallback(async () => {
+    const res = await fetch(`/api/clientes/${slug}/automation`, { cache: "no-store" });
+    const data = await res.json();
+    if (!res.ok) return;
+    setAutomation({
+      enabled: Boolean(data.enabled),
+      minStars: data.minStars ?? 4,
+      summary: data.summary,
+      counts: data.counts,
+    });
+  }, [slug]);
 
-  const load = useCallback(async () => {
+  const loadReviews = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/clientes/${slug}/reviews`, { cache: "no-store" });
+      const qs =
+        tab === "responded"
+          ? `view=responded&mode=${respondedMode}`
+          : "view=pending";
+      const res = await fetch(`/api/clientes/${slug}/reviews?${qs}`, {
+        cache: "no-store",
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
 
-      const list: Review[] = data.items || [];
-      setItems(list);
       setGoogleConnected(Boolean(data.googleConnected));
-      setDrafts(
-        Object.fromEntries(
-          list.map((r) => [
-            r.id,
-            r.suggestedDraftText?.trim() || r.reply?.draftText?.trim() || "",
-          ])
-        )
-      );
-      return list;
+      if (data.automation) {
+        setAutomation((prev) => ({
+          ...prev,
+          enabled: data.automation.enabled,
+          minStars: data.automation.minStars,
+        }));
+      }
+
+      if (tab === "responded") {
+        setRespondedItems(data.items || []);
+      } else {
+        const list: PendingReview[] = data.items || [];
+        setPendingItems(list);
+        setDrafts(
+          Object.fromEntries(
+            list.map((r) => [
+              r.id,
+              r.suggestedDraftText?.trim() || r.reply?.draftText?.trim() || "",
+            ])
+          )
+        );
+        return list;
+      }
+      return [];
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "No se pudieron cargar las reseñas");
-      setItems([]);
+      if (tab === "pending") setPendingItems([]);
+      else setRespondedItems([]);
       return [];
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [slug, tab, respondedMode]);
 
   const generarBorrador = useCallback(
     async (reviewId: string, silent = false) => {
@@ -98,7 +196,7 @@ export default function ClienteReviewsPage() {
 
         if (data.skipped) {
           setDrafts((prev) => ({ ...prev, [reviewId]: "" }));
-          setItems((prev) =>
+          setPendingItems((prev) =>
             prev.map((r) =>
               r.id === reviewId
                 ? { ...r, hasAiDraft: false, requiresManualDraft: true, reply: null }
@@ -111,24 +209,9 @@ export default function ClienteReviewsPage() {
 
         const text = data.draftText || "";
         setDrafts((prev) => ({ ...prev, [reviewId]: text }));
-        setItems((prev) =>
+        setPendingItems((prev) =>
           prev.map((r) =>
-            r.id === reviewId
-              ? {
-                  ...r,
-                  hasAiDraft: true,
-                  requiresManualDraft: false,
-                  reply: r.reply
-                    ? { ...r.reply, draftText: text, createdBy: "AI" }
-                    : {
-                        id: "",
-                        draftText: text,
-                        finalText: null,
-                        createdBy: "AI",
-                        sentAt: null,
-                      },
-                }
-              : r
+            r.id === reviewId ? { ...r, hasAiDraft: true, requiresManualDraft: false } : r
           )
         );
         if (!silent) toast.success("Borrador actualizado.");
@@ -146,14 +229,19 @@ export default function ClienteReviewsPage() {
 
   useEffect(() => {
     if (!slug) return;
-    load().then((list) => {
-      if (autoDraftStarted.current || !list.length) return;
+    loadAutomation();
+  }, [slug, loadAutomation]);
+
+  useEffect(() => {
+    if (!slug) return;
+    if (tab === "pending") autoDraftStarted.current = false;
+    loadReviews().then((list) => {
+      if (tab !== "pending" || autoDraftStarted.current || !list.length) return;
       const sinBorrador = list.filter(
-        (r) => !r.hasAiDraft && !r.requiresManualDraft
+        (r: PendingReview) => !r.hasAiDraft && !r.requiresManualDraft
       );
       if (!sinBorrador.length) return;
       autoDraftStarted.current = true;
-
       (async () => {
         for (const r of sinBorrador) {
           try {
@@ -162,12 +250,62 @@ export default function ClienteReviewsPage() {
             break;
           }
         }
-        if (sinBorrador.length > 0) {
-          toast.info("Borradores de IA listos para revisar.");
-        }
       })();
     });
-  }, [slug, load, generarBorrador]);
+  }, [slug, tab, respondedMode, loadReviews, generarBorrador]);
+
+  useEffect(() => {
+    if (searchParams.get("google_connected") === "1") {
+      toast.success("Google Business conectado correctamente.");
+    }
+  }, [searchParams]);
+
+  async function saveAutomation(enabled: boolean, minStars: number) {
+    setSavingAutomation(true);
+    try {
+      const res = await fetch(`/api/clientes/${slug}/automation`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, minStars }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
+      setAutomation((prev) => ({
+        ...prev,
+        enabled: data.enabled,
+        minStars: data.minStars,
+        summary: data.summary,
+      }));
+      await loadAutomation();
+      if (enabled) {
+        toast.success(`Automatización activa: ${data.summary}`);
+      } else {
+        toast.success("Automatización desactivada.");
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar");
+      throw e;
+    } finally {
+      setSavingAutomation(false);
+    }
+  }
+
+  function onToggleAuto() {
+    if (automation.enabled) {
+      saveAutomation(false, automation.minStars);
+      return;
+    }
+    setShowAutomationModal(true);
+  }
+
+  async function onConfirmAutomation(minStars: number) {
+    try {
+      await saveAutomation(true, minStars);
+      setShowAutomationModal(false);
+    } catch {
+      /* toast ya mostrado */
+    }
+  }
 
   async function enviarUna(id: string) {
     const text = drafts[id]?.trim();
@@ -175,7 +313,6 @@ export default function ClienteReviewsPage() {
       toast.error("Escribe o genera una respuesta antes de enviar.");
       return;
     }
-
     setSending(id);
     try {
       const res = await fetch(`/api/clientes/${slug}/reviews/${id}/reply`, {
@@ -185,13 +322,9 @@ export default function ClienteReviewsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
-
-      if (data.postedToGoogle) {
-        toast.success("Respuesta publicada en Google Maps.");
-      } else {
-        toast.success(data.message || "Respuesta guardada.");
-      }
-      setItems((prev) => prev.filter((r) => r.id !== id));
+      toast.success(data.postedToGoogle ? "Respuesta publicada." : data.message || "Guardada.");
+      setPendingItems((prev) => prev.filter((r) => r.id !== id));
+      await loadAutomation();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "No se pudo responder");
     } finally {
@@ -199,200 +332,201 @@ export default function ClienteReviewsPage() {
     }
   }
 
-  async function enviarTodas() {
-    if (items.length === 0) return;
-    for (const r of [...items]) {
-      await enviarUna(r.id);
-    }
-  }
-
-  function onToggleAuto() {
-    if (!auto) {
-      const t = toast.warning("¿Activar automatización de respuestas?", {
-        description: googleConnected
-          ? "Se publicarán en Google cuando la automatización esté activa en servidor."
-          : "Requiere Google Business conectado para publicar en Maps.",
-        action: {
-          label: "Activar",
-          onClick: () => {
-            setAuto(true);
-            toast.dismiss(t);
-            toast.success("Automatización activada (pendiente de job en servidor).");
-          },
-        },
-        cancel: { label: "Cancelar", onClick: () => {} },
-      });
-    } else {
-      setAuto(false);
-      toast.success("Automatización desactivada.");
-    }
-  }
+  const counts = automation.counts;
 
   return (
     <main className="min-h-screen flex flex-col">
-      <AppHeader title="Reseñas pendientes" />
+      <AppHeader title="Reseñas" />
+      <AutomationSetupModal
+        open={showAutomationModal}
+        onClose={() => setShowAutomationModal(false)}
+        onConfirm={onConfirmAutomation}
+        saving={savingAutomation}
+      />
 
-      <section className="flex items-center justify-between px-6 pt-6 max-w-6xl mx-auto w-full gap-4 flex-wrap">
-        <button className="btn btn-outline" onClick={() => router.push(`/c/${slug}`)}>
-          ← Volver
-        </button>
+      <section className="px-6 pt-6 max-w-6xl mx-auto w-full space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button className="btn btn-outline" onClick={() => router.push(`/c/${slug}`)}>
+            ← Volver
+          </button>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          {googleConnected ? (
-            <span className="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-              Publicación real en Google activa
-            </span>
-          ) : (
-            <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-              Modo demo — solo reseñas sin respuesta del negocio
-            </span>
-          )}
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={auto}
-            onClick={onToggleAuto}
-            className="group inline-flex items-center gap-3 select-none px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50"
-          >
-            <span className="text-sm text-slate-700">Automatizar respuestas</span>
-            <span
-              className={[
-                "h-6 w-11 rounded-full transition-colors",
-                auto ? "bg-brand" : "bg-slate-300",
-              ].join(" ")}
+          <div className="flex items-center gap-3 flex-wrap">
+            {automation.enabled && (
+              <span className="text-xs px-2 py-1 rounded-full bg-brand/10 text-brand border border-brand/20">
+                Auto: {automation.summary || `desde ${automation.minStars}★`}
+              </span>
+            )}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={automation.enabled}
+              onClick={onToggleAuto}
+              className="inline-flex items-center gap-3 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50"
             >
+              <span className="text-sm text-slate-700">Automatizar respuestas</span>
               <span
                 className={[
-                  "block h-6 w-6 rounded-full bg-white shadow transition-transform",
-                  auto ? "translate-x-5" : "translate-x-0",
+                  "h-6 w-11 rounded-full transition-colors",
+                  automation.enabled ? "bg-brand" : "bg-slate-300",
                 ].join(" ")}
-              />
-            </span>
+              >
+                <span
+                  className={[
+                    "block h-6 w-6 rounded-full bg-white shadow transition-transform",
+                    automation.enabled ? "translate-x-5" : "translate-x-0",
+                  ].join(" ")}
+                />
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {counts && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+            <div className="card p-3">
+              <div className="font-semibold text-slate-900">{counts.pending}</div>
+              <div className="text-slate-500">Pendientes</div>
+            </div>
+            <div className="card p-3">
+              <div className="font-semibold text-emerald-700">{counts.pendingEligible}</div>
+              <div className="text-slate-500">En cola auto</div>
+            </div>
+            <div className="card p-3">
+              <div className="font-semibold text-slate-700">{counts.respondedManual}</div>
+              <div className="text-slate-500">Resp. manual</div>
+            </div>
+            <div className="card p-3">
+              <div className="font-semibold text-brand">{counts.respondedAuto}</div>
+              <div className="text-slate-500">Resp. automática</div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+          <button
+            type="button"
+            className={[
+              "px-4 py-2 rounded-lg text-sm font-medium",
+              tab === "pending" ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100",
+            ].join(" ")}
+            onClick={() => setTab("pending")}
+          >
+            Por responder
+            {counts ? ` (${counts.pending})` : ""}
+          </button>
+          <button
+            type="button"
+            className={[
+              "px-4 py-2 rounded-lg text-sm font-medium",
+              tab === "responded"
+                ? "bg-brand text-white"
+                : "text-slate-600 hover:bg-slate-100",
+            ].join(" ")}
+            onClick={() => setTab("responded")}
+          >
+            Respondidas
+            {counts
+              ? ` (${counts.respondedManual + counts.respondedAuto})`
+              : ""}
           </button>
         </div>
+
+        {tab === "responded" && (
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["all", "Todas"],
+                ["manual", "Manuales"],
+                ["auto", "Automáticas"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                type="button"
+                className={[
+                  "text-xs px-3 py-1.5 rounded-full border",
+                  respondedMode === m
+                    ? "bg-slate-800 text-white border-slate-800"
+                    : "bg-white text-slate-600 border-slate-300",
+                ].join(" ")}
+                onClick={() => setRespondedMode(m)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="flex-1 max-w-6xl mx-auto w-full px-6 py-6">
         {loading ? (
-          <div className="card p-6 text-slate-500">Cargando reseñas…</div>
-        ) : items.length === 0 ? (
-          <div className="card p-6 text-slate-500">
-            No hay reseñas pendientes de respuesta. Las que ya tienen respuesta en
-            Google no se muestran aquí.
-          </div>
-        ) : (
-          <>
-            <p className="text-sm text-slate-600 mb-4">
-              Solo ves reseñas sin respuesta del negocio. El borrador de la IA es
-              editable antes de publicar.
-            </p>
-
+          <div className="card p-6 text-slate-500">Cargando…</div>
+        ) : tab === "pending" ? (
+          pendingItems.length === 0 ? (
+            <div className="card p-6 text-slate-500">No hay reseñas pendientes.</div>
+          ) : (
             <div className="space-y-4">
-              {items.map((r) => {
+              {pendingItems.map((r) => {
                 const draft = drafts[r.id] ?? "";
-                const isGenerating = generating === r.id;
-                const isSending = sending === r.id;
-
                 return (
                   <article key={r.id} className="card p-5">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <div>
-                        <div className="flex items-center gap-3">
-                          {r.authorPhotoUrl ? (
-                            <img
-                              src={r.authorPhotoUrl}
-                              alt=""
-                              className="w-10 h-10 rounded-full object-cover bg-slate-100"
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-full bg-slate-200" />
-                          )}
-                          <div>
-                            <div className="font-medium text-slate-900">
-                              {r.authorName || "Cliente"}
-                            </div>
-                            <div className="text-xs text-slate-500">
-                              ⭐ {r.stars} · {new Date(r.date).toLocaleDateString()}
-                            </div>
-                          </div>
-                        </div>
+                        <ReviewAuthorBlock
+                          authorName={r.authorName}
+                          authorPhotoUrl={r.authorPhotoUrl}
+                          stars={r.stars}
+                          date={r.date}
+                        />
+                        {r.automationManualOnly && (
+                          <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                            Solo manual (≤{automation.minStars - 1}★ con auto activo)
+                          </span>
+                        )}
+                        {r.eligibleForAutomation && automation.enabled && (
+                          <span className="inline-block mt-2 ml-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Entra en automatización
+                          </span>
+                        )}
                         {r.text.trim() ? (
                           <p className="mt-3 text-slate-800 whitespace-pre-wrap">{r.text}</p>
                         ) : (
                           <p className="mt-3 text-sm text-slate-500 italic">
-                            Sin comentario escrito — solo valoración de {r.stars} estrellas.
+                            Sin comentario — solo {r.stars} estrellas.
                           </p>
                         )}
                       </div>
-
                       <div>
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <div className="text-sm text-slate-600">
-                            <span className="font-medium">
-                              {r.isTemplateDraft
-                                ? "Plantilla sugerida"
-                                : "Borrador sugerido (IA)"}
-                            </span>
-                            {r.canPostToGoogle && (
-                              <span className="ml-2 text-xs text-emerald-700">
-                                · se publicará en Maps
-                              </span>
-                            )}
-                          </div>
+                        <div className="flex justify-between mb-2">
+                          <span className="text-sm font-medium text-slate-600">
+                            {r.isTemplateDraft ? "Plantilla sugerida" : "Borrador (IA)"}
+                          </span>
                           {!r.requiresManualDraft && (
                             <button
                               type="button"
-                              className="text-xs inline-flex items-center gap-1 text-brand hover:underline disabled:opacity-50"
+                              className="text-xs text-brand hover:underline inline-flex items-center gap-1"
                               onClick={() => generarBorrador(r.id)}
-                              disabled={isGenerating || isSending}
+                              disabled={generating === r.id}
                             >
                               <Sparkles className="w-3.5 h-3.5" />
-                              {isGenerating ? "Generando…" : "Regenerar"}
+                              Regenerar
                             </button>
                           )}
                         </div>
-
                         <textarea
                           value={draft}
                           onChange={(e) =>
                             setDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))
                           }
-                          placeholder={
-                            r.requiresManualDraft
-                              ? "Valoración baja sin texto: escribe una respuesta personalizada (no usamos IA aquí)."
-                              : isGenerating
-                                ? "Generando borrador…"
-                                : "Pulsa «Regenerar» o escribe tu respuesta."
-                          }
-                          disabled={isGenerating}
-                          className={[
-                            "w-full min-h-[140px] rounded-xl border px-3 py-2 outline-none focus:ring-2 ring-brand",
-                            r.hasAiDraft || draft
-                              ? "border-slate-300 bg-[color:var(--brand-50)]/30"
-                              : "border-slate-300 bg-white",
-                          ].join(" ")}
+                          className="w-full min-h-[140px] rounded-xl border border-slate-300 px-3 py-2 focus:ring-2 ring-brand"
                         />
-
-                        <div className="mt-3 flex justify-end gap-2">
-                          {!draft.trim() && !isGenerating && !r.requiresManualDraft && (
-                            <button
-                              type="button"
-                              className="btn btn-outline inline-flex items-center gap-2"
-                              onClick={() => generarBorrador(r.id)}
-                            >
-                              <Sparkles className="w-4 h-4" />
-                              Generar borrador
-                            </button>
-                          )}
+                        <div className="mt-3 flex justify-end">
                           <button
                             className="btn btn-primary"
                             onClick={() => enviarUna(r.id)}
-                            disabled={isSending || isGenerating || !draft.trim()}
+                            disabled={sending === r.id || !draft.trim()}
                           >
-                            {isSending ? "Enviando…" : "Responder"}
+                            {sending === r.id ? "Enviando…" : "Responder"}
                           </button>
                         </div>
                       </div>
@@ -401,17 +535,48 @@ export default function ClienteReviewsPage() {
                 );
               })}
             </div>
-
-            <div className="flex justify-end pt-6">
-              <button
-                className="btn btn-primary"
-                onClick={enviarTodas}
-                disabled={loading || items.length === 0 || sending !== null || generating !== null}
-              >
-                Responder todo
-              </button>
-            </div>
-          </>
+          )
+        ) : respondedItems.length === 0 ? (
+          <div className="card p-6 text-slate-500">
+            No hay reseñas respondidas en este filtro.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {respondedItems.map((r) => (
+              <article key={r.id} className="card p-5">
+                <div className="flex justify-between items-start gap-4 mb-3">
+                  <ReviewAuthorBlock
+                    authorName={r.authorName}
+                    authorPhotoUrl={r.authorPhotoUrl}
+                    stars={r.stars}
+                    date={r.date}
+                  />
+                  <span
+                    className={[
+                      "text-xs px-2 py-1 rounded-full shrink-0",
+                      r.sentByAutomation
+                        ? "bg-brand/10 text-brand border border-brand/20"
+                        : "bg-slate-100 text-slate-700 border border-slate-200",
+                    ].join(" ")}
+                  >
+                    {r.sentByAutomation ? "Automática" : "Manual"}
+                  </span>
+                </div>
+                {r.text.trim() && (
+                  <p className="text-sm text-slate-600 mb-3 whitespace-pre-wrap">{r.text}</p>
+                )}
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
+                  <div className="text-xs text-slate-500 mb-1">
+                    Respuesta
+                    {r.sentAt
+                      ? ` · ${new Date(r.sentAt).toLocaleString()}`
+                      : ""}
+                  </div>
+                  <p className="text-slate-800 whitespace-pre-wrap">{r.responseText}</p>
+                </div>
+              </article>
+            ))}
+          </div>
         )}
       </section>
     </main>

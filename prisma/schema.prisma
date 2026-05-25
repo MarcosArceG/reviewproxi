@@ -145,10 +145,13 @@ model Reply {
   finalText String?
   createdBy CreatedBy @default(AI)
   sentAt    DateTime?
+  /// true si la respuesta se publicó vía automatización (cron/job).
+  sentByAutomation Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([sentByAutomation])
   @@map("Reply")
 }
 
@@ -158,6 +161,8 @@ model Automation {
   cliente   Cliente @relation(fields: [clienteId], references: [id])
 
   enabled   Boolean   @default(false)
+  /// Solo reseñas con stars >= minStars entran en automatización (p. ej. 4 = deja ≤3 manual).
+  minStars  Int       @default(4)
   enabledAt DateTime?
   updatedAt DateTime  @updatedAt
 

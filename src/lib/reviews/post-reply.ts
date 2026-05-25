@@ -9,7 +9,8 @@ import type { PostReplyResult } from "@/lib/reviews/types";
 export async function postReviewReply(
   slugOrId: string,
   reviewId: string,
-  text: string
+  text: string,
+  options?: { sentByAutomation?: boolean }
 ): Promise<PostReplyResult> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error("El texto de la respuesta es obligatorio");
@@ -59,6 +60,8 @@ export async function postReviewReply(
   }
 
   const now = new Date();
+  const sentByAutomation = Boolean(options?.sentByAutomation);
+  const createdBy = sentByAutomation ? "AI" : "USER";
 
   if (review.reply) {
     await prisma.reply.update({
@@ -66,8 +69,9 @@ export async function postReviewReply(
       data: {
         finalText: trimmed,
         draftText: trimmed,
-        createdBy: "USER",
+        createdBy,
         sentAt: now,
+        sentByAutomation,
       },
     });
   } else {
@@ -76,8 +80,9 @@ export async function postReviewReply(
         reviewId: review.id,
         draftText: trimmed,
         finalText: trimmed,
-        createdBy: "USER",
+        createdBy,
         sentAt: now,
+        sentByAutomation,
       },
     });
   }
