@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthError, requireClienteScopeApi } from "@/lib/auth/api";
 import { getSlugFromRequest } from "@/lib/api/slug";
 import {
   getClienteWithGoogle,
@@ -18,6 +19,9 @@ export async function GET(
   if (!slug) {
     return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
   }
+
+  const authResult = await requireClienteScopeApi(slug);
+  if (isAuthError(authResult)) return authResult;
 
   const cliente = await getClienteWithGoogle(slug);
   if (!cliente) {

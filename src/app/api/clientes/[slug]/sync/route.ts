@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthError, requireClienteScopeApi } from "@/lib/auth/api";
 import { getSlugFromRequest } from "@/lib/api/slug";
 import { syncClienteReviews } from "@/lib/reviews/sync-reviews";
 
@@ -15,6 +16,9 @@ export async function POST(
     if (!slug) {
       return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
     }
+
+    const authResult = await requireClienteScopeApi(slug);
+    if (isAuthError(authResult)) return authResult;
 
     const result = await syncClienteReviews(slug);
     return NextResponse.json(result, { status: 200 });

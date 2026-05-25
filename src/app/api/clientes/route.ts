@@ -3,8 +3,9 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { isAuthError, requireAdminApi } from "@/lib/auth/api";
 import { prisma } from "@/lib/prisma";
-import { createClerkClient } from "@clerk/backend"; // ⬅️ lo usamos solo dentro de POST
+import { createClerkClient } from "@clerk/backend";
 
 // --- Utils ---
 function slugify(input: string) {
@@ -28,6 +29,9 @@ async function uniqueSlug(base: string) {
 // --- POST: crear cliente (Clerk + DB) ---
 export async function POST(req: Request) {
   try {
+    const authResult = await requireAdminApi();
+    if (isAuthError(authResult)) return authResult;
+
     const { nombre, so, email, password, urlGoogle } = await req.json();
 
     if (!nombre || !email || !password || !urlGoogle) {
@@ -48,7 +52,7 @@ export async function POST(req: Request) {
     const created = await clerk.users.createUser({
       emailAddress: [email],
       password,
-      publicMetadata: { role: "CLIENT" },
+      publicMetadata: { role: "CLIENT", clienteSlug: slug },
     });
 
     // 2) Crear registros en DB
@@ -88,6 +92,9 @@ export async function POST(req: Request) {
 // --- GET: listado + búsqueda ---
 export async function GET(req: Request) {
   try {
+    const authResult = await requireAdminApi();
+    if (isAuthError(authResult)) return authResult;
+
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthError, requireClienteScopeApi } from "@/lib/auth/api";
 import { getSlugFromRequest } from "@/lib/api/slug";
 import { generateDraftForReview } from "@/lib/reviews/generate-draft";
 import { getClienteWithGoogle } from "@/lib/reviews/provider";
@@ -21,6 +22,9 @@ export async function POST(
     if (!reviewId) {
       return NextResponse.json({ error: "reviewId no proporcionado" }, { status: 400 });
     }
+
+    const authResult = await requireClienteScopeApi(slug);
+    if (isAuthError(authResult)) return authResult;
 
     const cliente = await getClienteWithGoogle(slug);
     if (!cliente) {

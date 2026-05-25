@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthError, requireClienteScopeApi } from "@/lib/auth/api";
 import { getSlugFromRequest } from "@/lib/api/slug";
 import {
   automationExclusionReason,
@@ -26,6 +27,9 @@ export async function GET(
   if (!slug) {
     return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
   }
+
+  const authResult = await requireClienteScopeApi(slug);
+  if (isAuthError(authResult)) return authResult;
 
   const url = new URL(req.url);
   const view = (url.searchParams.get("view") || "pending") as ReviewView;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthError, requireClienteScopeApi } from "@/lib/auth/api";
 import { getSlugFromRequest } from "@/lib/api/slug";
 import {
   automationSummaryLabel,
@@ -83,6 +84,9 @@ export async function GET(
     return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
   }
 
+  const authResult = await requireClienteScopeApi(slug);
+  if (isAuthError(authResult)) return authResult;
+
   const cliente = await getClienteWithGoogle(slug);
   if (!cliente) {
     return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
@@ -114,6 +118,9 @@ export async function PATCH(
   if (!slug) {
     return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
   }
+
+  const authResult = await requireClienteScopeApi(slug);
+  if (isAuthError(authResult)) return authResult;
 
   const cliente = await getClienteWithGoogle(slug);
   if (!cliente) {

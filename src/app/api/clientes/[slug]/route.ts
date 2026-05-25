@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthError, requireAdminApi, requireClienteScopeApi } from "@/lib/auth/api";
 import { prisma } from "@/lib/prisma";
 import { createClerkClient } from "@clerk/backend";
 import { getSlugFromRequest } from "@/lib/api/slug";
@@ -24,6 +25,9 @@ export async function GET(
   const slug = getSlugFromRequest(req, { slug: slugParam });
   if (!slug) return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
 
+  const authResult = await requireClienteScopeApi(slug);
+  if (isAuthError(authResult)) return authResult;
+
   const cliente = await getClienteWithGoogle(slug);
   if (!cliente) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
 
@@ -44,6 +48,9 @@ export async function PATCH(
   const slug = getSlugFromRequest(req, { slug: slugParam });
   if (!slug) return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
 
+  const authResult = await requireAdminApi();
+  if (isAuthError(authResult)) return authResult;
+
   const data = await req.json();
   const cliente = await getClienteWithGoogle(slug);
   if (!cliente) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
@@ -60,6 +67,9 @@ export async function DELETE(
   const { slug: slugParam } = await params;
   const slug = getSlugFromRequest(req, { slug: slugParam });
   if (!slug) return NextResponse.json({ error: "slug no proporcionado" }, { status: 400 });
+
+  const authResult = await requireAdminApi();
+  if (isAuthError(authResult)) return authResult;
 
   const cliente = await getClienteWithGoogle(slug);
   if (!cliente) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });

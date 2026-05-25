@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthError, requireClienteScopeApi } from "@/lib/auth/api";
 import { getSlugFromRequest } from "@/lib/api/slug";
 import { postReviewReply } from "@/lib/reviews/post-reply";
 
@@ -20,6 +21,9 @@ export async function POST(
     if (!reviewId) {
       return NextResponse.json({ error: "reviewId no proporcionado" }, { status: 400 });
     }
+
+    const authResult = await requireClienteScopeApi(slug);
+    if (isAuthError(authResult)) return authResult;
 
     const body = await req.json().catch(() => ({}));
     const text = typeof body.text === "string" ? body.text : "";
