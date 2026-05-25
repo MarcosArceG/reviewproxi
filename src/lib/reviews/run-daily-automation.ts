@@ -40,7 +40,7 @@ export async function runDailyAutomation(options?: {
     select: {
       id: true,
       slug: true,
-      automation: { select: { minStars: true, enabled: true } },
+      automation: { select: { minStars: true, enabled: true, enabledAt: true } },
     },
     take: maxClientes,
     orderBy: { updatedAt: "asc" },
@@ -84,6 +84,7 @@ export async function runDailyAutomation(options?: {
           id: true,
           stars: true,
           text: true,
+          date: true,
           rawJson: true,
           reply: { select: { draftText: true } },
         },
@@ -98,7 +99,13 @@ export async function runDailyAutomation(options?: {
           row.skipped++;
           continue;
         }
-        if (!isEligibleForAutomation(review.stars, cliente.automation)) {
+        if (
+          !isEligibleForAutomation(
+            review.stars,
+            review.date,
+            cliente.automation
+          )
+        ) {
           row.skipped++;
           continue;
         }

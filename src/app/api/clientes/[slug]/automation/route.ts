@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSlugFromRequest } from "@/lib/api/slug";
 import {
   automationSummaryLabel,
+  formatAutomateSince,
+  isEligibleForAutomation,
   normalizeMinStars,
 } from "@/lib/reviews/automation";
 import { getClienteWithGoogle } from "@/lib/reviews/provider";
@@ -10,12 +12,20 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-async function getReviewCounts(clienteId: string) {
+async function getReviewCounts(
+  clienteId: string,
+  automation: {
+    enabled: boolean;
+    minStars: number;
+    enabledAt: Date | null;
+  } | null
+) {
   const rows = await prisma.review.findMany({
     where: { clienteId },
     select: {
       stars: true,
       status: true,
+      date: true,
       rawJson: true,
       reply: { select: { sentByAutomation: true, sentAt: true } },
     },
@@ -24,20 +34,43 @@ async function getReviewCounts(clienteId: string) {
   let pending = 0;
   let respondedManual = 0;
   let respondedAuto = 0;
+  let pendingEligible = 0;
+  let pendingManualOnly = 0;
+  let pendingHistorical = 0;
 
   for (const r of rows) {
     if (hasOwnerReplyInRaw(r.rawJson)) continue;
+
     if (r.status === "RESPONDIDA" && r.reply?.sentAt) {
       if (r.reply.sentByAutomation) respondedAuto++;
       else respondedManual++;
       continue;
     }
+
     if (r.status === "PENDIENTE" || r.status === "LISTA") {
       pending++;
+      if (!automation?.enabled || !automation.enabledAt) continue;
+
+      if (r.date < automation.enabledAt) {
+        pendingHistorical++;
+        continue;
+      }
+      if (isEligibleForAutomation(r.stars, r.date, automation)) {
+        pendingEligible++;
+      } else {
+        pendingManualOnly++;
+      }
     }
   }
 
-  return { pending, respondedManual, respondedAuto };
+  return {
+    pending,
+    respondedManual,
+    respondedAuto,
+    pendingEligible,
+    pendingManualOnly,
+    pendingHistorical,
+  };
 }
 
 export async function GET(
@@ -60,31 +93,15 @@ export async function GET(
   });
 
   const minStars = automation?.minStars ?? 4;
-  const counts = await getReviewCounts(cliente.id);
-
-  const pendingRows = await prisma.review.findMany({
-    where: { clienteId: cliente.id, status: { in: ["PENDIENTE", "LISTA"] } },
-    select: { stars: true, rawJson: true },
-  });
-
-  let pendingEligible = 0;
-  let pendingManualOnly = 0;
-  for (const r of pendingRows) {
-    if (hasOwnerReplyInRaw(r.rawJson)) continue;
-    if (r.stars >= minStars) pendingEligible++;
-    else pendingManualOnly++;
-  }
+  const counts = await getReviewCounts(cliente.id, automation);
 
   return NextResponse.json({
     enabled: automation?.enabled ?? false,
     minStars,
     enabledAt: automation?.enabledAt?.toISOString() ?? null,
+    automateSinceLabel: formatAutomateSince(automation?.enabledAt),
     summary: automationSummaryLabel(minStars),
-    counts: {
-      ...counts,
-      pendingEligible,
-      pendingManualOnly,
-    },
+    counts,
   });
 }
 
@@ -107,25 +124,39 @@ export async function PATCH(
   const enabled = Boolean(body.enabled);
   const minStars = normalizeMinStars(body.minStars ?? 4);
 
+  const existing = await prisma.automation.findUnique({
+    where: { clienteId: cliente.id },
+  });
+
+  const enabledAt = !enabled
+    ? null
+    : existing?.enabled && existing.enabledAt
+      ? existing.enabledAt
+      : new Date();
+
   const automation = await prisma.automation.upsert({
     where: { clienteId: cliente.id },
     create: {
       clienteId: cliente.id,
       enabled,
       minStars,
-      enabledAt: enabled ? new Date() : null,
+      enabledAt,
     },
     update: {
       enabled,
       minStars,
-      enabledAt: enabled ? new Date() : null,
+      enabledAt,
     },
   });
+
+  const counts = await getReviewCounts(cliente.id, automation);
 
   return NextResponse.json({
     enabled: automation.enabled,
     minStars: automation.minStars,
     enabledAt: automation.enabledAt?.toISOString() ?? null,
+    automateSinceLabel: formatAutomateSince(automation.enabledAt),
     summary: automationSummaryLabel(automation.minStars),
+    counts,
   });
 }

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSlugFromRequest } from "@/lib/api/slug";
-import { isEligibleForAutomation } from "@/lib/reviews/automation";
+import {
+  automationExclusionReason,
+  isEligibleForAutomation,
+} from "@/lib/reviews/automation";
 import { hasOwnerReplyInRaw } from "@/lib/reviews/owner-reply";
 import { ensureDisplayDraftForReview } from "@/lib/reviews/ensure-display-draft";
 import {
@@ -98,6 +101,7 @@ export async function GET(
       automation: {
         enabled: automation?.enabled ?? false,
         minStars: automation?.minStars ?? 4,
+        enabledAt: automation?.enabledAt?.toISOString() ?? null,
       },
       items: items.slice(0, 20),
     });
@@ -139,7 +143,12 @@ export async function GET(
   const items = await Promise.all(
     filtered.map(async (r) => {
       const display = await ensureDisplayDraftForReview(r);
-      const eligibleForAutomation = isEligibleForAutomation(r.stars, automation);
+      const eligibleForAutomation = isEligibleForAutomation(
+        r.stars,
+        r.date,
+        automation
+      );
+      const exclusion = automationExclusionReason(r.stars, r.date, automation);
       return {
         id: r.id,
         authorName: r.authorName,
@@ -155,6 +164,7 @@ export async function GET(
         isTemplateDraft: display.isTemplateDraft,
         suggestedDraftText: display.draftText,
         eligibleForAutomation,
+        automationExclusion: exclusion,
         automationManualOnly: automation?.enabled && !eligibleForAutomation,
         reply: display.reply,
         canPostToGoogle:
@@ -170,6 +180,7 @@ export async function GET(
     automation: {
       enabled: automation?.enabled ?? false,
       minStars: automation?.minStars ?? 4,
+      enabledAt: automation?.enabledAt?.toISOString() ?? null,
     },
     items,
   });

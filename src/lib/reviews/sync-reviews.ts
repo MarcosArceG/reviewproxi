@@ -70,7 +70,13 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
   if (!cliente) throw new Error("Cliente no encontrado");
 
   const provider = resolveSyncProvider(cliente);
-  const { reviews } = await fetchReviewsForCliente(cliente, 10);
+  const existingCount = await prisma.review.count({
+    where: { clienteId: cliente.id },
+  });
+  const isInitialSync = existingCount === 0;
+  const { reviews } = await fetchReviewsForCliente(cliente, {
+    initial: isInitialSync,
+  });
 
   let created = 0;
   let skipped = 0;
@@ -136,5 +142,13 @@ export async function syncClienteReviews(slugOrId: string): Promise<SyncResult> 
     });
   }
 
-  return { ok: true, provider, created, skipped, skippedAnswered, drafted };
+  return {
+    ok: true,
+    provider,
+    initial: isInitialSync,
+    created,
+    skipped,
+    skippedAnswered,
+    drafted,
+  };
 }

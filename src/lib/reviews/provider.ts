@@ -3,10 +3,22 @@ import { prisma } from "@/lib/prisma";
 import { isGoogleOAuthConfigured } from "@/lib/google/config";
 import { fetchReviewsFromApify, isApifyConfigured } from "@/lib/reviews/apify-provider";
 import { fetchReviewsFromGoogle } from "@/lib/google/business-api";
+import {
+  applyIncrementalSyncLimit,
+  applyInitialSyncWindow,
+  INITIAL_SYNC_MAX_REVIEWS,
+  INCREMENTAL_SYNC_MAX_REVIEWS,
+} from "@/lib/reviews/sync-policy";
 import type { NormalizedReview, SyncProvider } from "@/lib/reviews/types";
 
 export type ClienteWithGoogle = Cliente & {
   googleConnection: GoogleConnection | null;
+};
+
+export type FetchReviewsOptions = {
+  /** Primera importación: hasta 100 del último año. */
+  initial?: boolean;
+  limit?: number;
 };
 
 export async function getClienteWithGoogle(
@@ -41,24 +53,37 @@ export function resolveSyncProvider(cliente: ClienteWithGoogle): SyncProvider {
 
 export async function fetchReviewsForCliente(
   cliente: ClienteWithGoogle,
-  limit = 10
+  options: FetchReviewsOptions = {}
 ): Promise<{ provider: SyncProvider; reviews: NormalizedReview[] }> {
   const provider = resolveSyncProvider(cliente);
+  const initial = options.initial === true;
+  const fetchLimit = initial
+    ? INITIAL_SYNC_MAX_REVIEWS
+    : (options.limit ?? INCREMENTAL_SYNC_MAX_REVIEWS);
+
+  let reviews: NormalizedReview[];
 
   if (provider === "google" && cliente.googleConnection) {
-    const reviews = await fetchReviewsFromGoogle(cliente.googleConnection, limit);
-    return { provider, reviews };
+    reviews = await fetchReviewsFromGoogle(cliente.googleConnection, fetchLimit);
+  } else {
+    if (!cliente.urlGoogle) {
+      throw new Error("El cliente no tiene urlGoogle configurada (modo demo Apify)");
+    }
+    if (!isApifyConfigured()) {
+      throw new Error("Falta APIFY_TOKEN para sincronización demo");
+    }
+    reviews = await fetchReviewsFromApify(cliente.urlGoogle, fetchLimit, {
+      initial,
+    });
   }
 
-  if (!cliente.urlGoogle) {
-    throw new Error("El cliente no tiene urlGoogle configurada (modo demo Apify)");
-  }
-  if (!isApifyConfigured()) {
-    throw new Error("Falta APIFY_TOKEN para sincronización demo");
+  if (initial) {
+    reviews = applyInitialSyncWindow(reviews);
+  } else {
+    reviews = applyIncrementalSyncLimit(reviews, fetchLimit);
   }
 
-  const reviews = await fetchReviewsFromApify(cliente.urlGoogle, limit);
-  return { provider: "apify", reviews };
+  return { provider, reviews };
 }
 
 /** Estado público de integración Google (sin tokens). */

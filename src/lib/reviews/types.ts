@@ -19,6 +19,8 @@ export type SyncProvider = "apify" | "google";
 export type SyncResult = {
   ok: true;
   provider: SyncProvider;
+  /** true en la primera importación (hasta 100 del último año). */
+  initial?: boolean;
   created: number;
   skipped: number;
   skippedAnswered: number;

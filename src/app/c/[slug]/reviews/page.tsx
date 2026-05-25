@@ -14,10 +14,12 @@ type AutomationState = {
   enabled: boolean;
   minStars: number;
   summary?: string;
+  automateSinceLabel?: string | null;
   counts?: {
     pending: number;
     pendingEligible: number;
     pendingManualOnly: number;
+    pendingHistorical: number;
     respondedManual: number;
     respondedAuto: number;
   };
@@ -44,6 +46,7 @@ type PendingReview = {
   isTemplateDraft: boolean;
   suggestedDraftText?: string;
   eligibleForAutomation?: boolean;
+  automationExclusion?: "historical" | "low_stars" | null;
   automationManualOnly?: boolean;
   canPostToGoogle: boolean;
   reply: Reply | null;
@@ -131,6 +134,7 @@ export default function ClienteReviewsPage() {
       enabled: Boolean(data.enabled),
       minStars: data.minStars ?? 4,
       summary: data.summary,
+      automateSinceLabel: data.automateSinceLabel ?? null,
       counts: data.counts,
     });
   }, [slug]);
@@ -275,8 +279,11 @@ export default function ClienteReviewsPage() {
         enabled: data.enabled,
         minStars: data.minStars,
         summary: data.summary,
+        automateSinceLabel: data.automateSinceLabel ?? null,
+        counts: data.counts ?? prev.counts,
       }));
       await loadAutomation();
+      await loadReviews();
       if (enabled) {
         toast.success(`Automatización activa: ${data.summary}`);
       } else {
@@ -342,6 +349,7 @@ export default function ClienteReviewsPage() {
         onClose={() => setShowAutomationModal(false)}
         onConfirm={onConfirmAutomation}
         saving={savingAutomation}
+        pendingHistorical={counts?.pendingHistorical ?? 0}
       />
 
       <section className="px-6 pt-6 max-w-6xl mx-auto w-full space-y-4">
@@ -381,15 +389,41 @@ export default function ClienteReviewsPage() {
           </div>
         </div>
 
+        {automation.enabled && automation.automateSinceLabel && (
+          <p className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+            Automatización activa desde <strong>{automation.automateSinceLabel}</strong>.
+            Las reseñas importadas antes de esa fecha se responden manualmente; las nuevas
+            entran en cola según <strong>{automation.summary}</strong>.
+          </p>
+        )}
+
+        {!automation.enabled && counts && counts.pending > 0 && (
+          <p className="text-sm text-slate-600 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            Tienes <strong>{counts.pending}</strong> reseñas pendientes del histórico.
+            Respóndelas manualmente. Al activar automatización, solo las{" "}
+            <strong>nuevas</strong> desde ese momento podrán ir en cola automática.
+          </p>
+        )}
+
         {counts && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
             <div className="card p-3">
               <div className="font-semibold text-slate-900">{counts.pending}</div>
               <div className="text-slate-500">Pendientes</div>
             </div>
+            {automation.enabled && (
+              <div className="card p-3">
+                <div className="font-semibold text-amber-800">
+                  {counts.pendingHistorical ?? 0}
+                </div>
+                <div className="text-slate-500">Histórico (manual)</div>
+              </div>
+            )}
             <div className="card p-3">
-              <div className="font-semibold text-emerald-700">{counts.pendingEligible}</div>
-              <div className="text-slate-500">En cola auto</div>
+              <div className="font-semibold text-emerald-700">
+                {automation.enabled ? counts.pendingEligible : "—"}
+              </div>
+              <div className="text-slate-500">Cola auto</div>
             </div>
             <div className="card p-3">
               <div className="font-semibold text-slate-700">{counts.respondedManual}</div>
@@ -478,14 +512,21 @@ export default function ClienteReviewsPage() {
                           stars={r.stars}
                           date={r.date}
                         />
-                        {r.automationManualOnly && (
+                        {r.automationExclusion === "historical" && automation.enabled && (
                           <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                            Solo manual (≤{automation.minStars - 1}★ con auto activo)
+                            Histórico — solo manual
+                          </span>
+                        )}
+                        {r.automationExclusion === "low_stars" && automation.enabled && (
+                          <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                            {automation.minStars <= 1
+                              ? "Solo manual"
+                              : `Solo manual (≤${automation.minStars - 1}★)`}
                           </span>
                         )}
                         {r.eligibleForAutomation && automation.enabled && (
                           <span className="inline-block mt-2 ml-1 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            Entra en automatización
+                            Cola automática
                           </span>
                         )}
                         {r.text.trim() ? (

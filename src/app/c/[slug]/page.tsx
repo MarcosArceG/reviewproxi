@@ -105,8 +105,11 @@ export default function ClientePanelPage() {
       const omitidas = data.skippedAnswered
         ? ` · ${data.skippedAnswered} ya respondidas en Maps (ocultas)`
         : "";
+      const scope = data.initial
+        ? " (primera importación: hasta 100 del último año, respuesta manual)"
+        : "";
       toast.success(
-        `Sincronizado vía ${via}: ${data.created} nuevas, ${data.drafted} borradores IA${omitidas}`
+        `Sincronizado vía ${via}: ${data.created} nuevas, ${data.drafted} borradores${scope}${omitidas}`
       );
       window.location.href = `/c/${slug}/reviews`;
     } catch (e: unknown) {
@@ -178,8 +181,8 @@ export default function ClientePanelPage() {
                   {busy === "sync"
                     ? "Sincronizando…"
                     : googleConnected
-                      ? "Sincronizar reseñas (Google)"
-                      : "Importar reseñas (demo Apify)"}
+                      ? "Importar reseñas (Google)"
+                      : "Importar reseñas (demo)"}
                 </button>
 
                 {googleConnected && (
@@ -193,10 +196,14 @@ export default function ClientePanelPage() {
                 )}
               </div>
 
+              <p className="mt-4 text-xs text-slate-500">
+                La primera importación trae hasta <strong>100 reseñas del último año</strong>{" "}
+                para responderlas manualmente. La automatización solo afecta a reseñas nuevas
+                cuando la actives en el panel de reseñas.
+              </p>
               {!oauthConfigured && (
-                <p className="mt-4 text-xs text-slate-500">
-                  Cuando Google apruebe la API, configura OAuth en el servidor y el botón de
-                  conexión real aparecerá aquí. Mientras tanto, usa importación demo.
+                <p className="mt-2 text-xs text-slate-500">
+                  Mientras tanto, usa importación demo (Apify) si OAuth no está configurado.
                 </p>
               )}
             </>

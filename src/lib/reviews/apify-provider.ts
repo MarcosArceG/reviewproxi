@@ -91,12 +91,21 @@ function pickExternalId(it: Record<string, unknown>): string | null {
   return s || null;
 }
 
-async function runApify(actorId: string, token: string, urlGoogle: string) {
+async function runApify(
+  actorId: string,
+  token: string,
+  urlGoogle: string,
+  maxReviews: number
+) {
   const cleaned = actorId.trim().toLowerCase().replace("/", "~");
-  const qs = new URLSearchParams({ token, limit: "50", clean: "true" });
+  const qs = new URLSearchParams({
+    token,
+    limit: String(maxReviews),
+    clean: "true",
+  });
   const input = {
     startUrls: [{ url: urlGoogle }],
-    maxReviews: 50,
+    maxReviews,
     reviewsSort: "newest",
     language: "es",
   };
@@ -135,7 +144,8 @@ export function isApifyConfigured(): boolean {
 
 export async function fetchReviewsFromApify(
   urlGoogle: string,
-  limit = 10
+  limit = 10,
+  options?: { initial?: boolean }
 ): Promise<NormalizedReview[]> {
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error("Falta APIFY_TOKEN");
@@ -144,7 +154,8 @@ export async function fetchReviewsFromApify(
     process.env.APIFY_ACTOR_ID || "compass/google-maps-reviews-scraper"
   ).toLowerCase();
 
-  const items = await runApify(actorId, token, urlGoogle);
+  const fetchMax = options?.initial ? Math.max(limit, 100) : limit;
+  const items = await runApify(actorId, token, urlGoogle, fetchMax);
 
   const normalized: NormalizedReview[] = items.map((raw: Record<string, unknown>) => {
     const authorName =
