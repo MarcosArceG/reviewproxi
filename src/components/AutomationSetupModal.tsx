@@ -85,9 +85,9 @@ export default function AutomationSetupModal({
           </label>
         </div>
 
-        <p className="mt-4 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          El envío automático en Google llegará con el cron en servidor. La
-          configuración ya queda guardada y verás el reparto en las pestañas.
+        <p className="mt-4 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          Un cron diario (≈08:00 hora de Madrid) sincroniza reseñas y responde las
+          que cumplan este criterio de estrellas. Las demás siguen en Pendientes.
         </p>
 
         <div className="mt-5 flex justify-end gap-2">
